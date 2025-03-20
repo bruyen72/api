@@ -51,7 +51,7 @@ config = {
     # REDIRECTION #
     "redirect": {
         "redirect": False, # Redirect to a webpage?
-        "page": "https://giffy-xi-teal.vercel.app/api/main" # Link to the webpage to redirect to 
+        "page": "https://your-link.here" # Link to the webpage to redirect to  
     },
 
     # Please enter all values in correct format. Otherwise, it may break.
