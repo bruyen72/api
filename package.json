@@ -1,10 +1,9 @@
 {
   "name": "discord-image-logger",
   "version": "1.0.0",
-  "description": "Discord Image Logger for Vercel",
-  "private": true,
-  "scripts": {
-    "start": "vercel dev",
-    "deploy": "vercel deploy"
+  "description": "Discord Image Logger para Vercel",
+  "main": "api/main.js",
+  "engines": {
+    "node": "18.x"
   }
 }
