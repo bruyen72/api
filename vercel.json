@@ -1,13 +1,1 @@
-{
-  "version": 2,
-  "routes": [
-    { "src": "/", "dest": "/api/main" },
-    { "src": "/(.*)", "dest": "/api/main" }
-  ],
-  "functions": {
-    "api/main.py": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
-  }
-}
+bruyen72/api
