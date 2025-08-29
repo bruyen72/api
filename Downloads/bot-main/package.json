@@ -1,0 +1,34 @@
+{
+  "name": "aeon-refactored",
+  "version": "2.0.0",
+  "description": "Aeon é um bot do WhatsApp poderoso e flexível, projetado para automação e gerenciamento aprimorado de grupos.",
+  "main": "dist-api/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist-api/server.js",
+    "dev": "vite --config vite.config.mjs",
+    "preview": "vite preview",
+    "vercel-build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@vercel/node": "^3.2.17",
+    "@whiskeysockets/baileys": "^6.7.18",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.11",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.3.3",
+    "vite": "^5.4.0"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "instagram",
+    "tiktok"
+  ],
+  "author": "Diego Melo (Refactored by Gemini)",
+  "license": "MIT"
+}
